@@ -44,6 +44,29 @@ ___TEMPLATE_PARAMETERS___
   },
   {
     "type": "TEXT",
+    "name": "eventsToInclude",
+    "displayName": "Event names to force include, even when they start with an excluded prefix",
+    "simpleValueType": true,
+    "defaultValue": "[]",
+    "canBeEmptyString": false,
+    "help": "JSON Array of event names that will be force included in Avo Inspector, even if they match excluded prefixes",
+    "textAsList": false,
+    "valueHint": "JSON Array of event names that will be force included in Avo Inspector",
+    "valueUnit": "JSON Array"
+  },
+  {
+    "type": "TEXT",
+    "name": "eventPrefixesToExclude",
+    "displayName": "Event prefixes to ignore",
+    "simpleValueType": true,
+    "canBeEmptyString": false,
+    "defaultValue": "[\"gtm.\", \"gtag.\", \"firebase_\", \"ga_\", \"google_\", \"_\"]",
+    "help": "JSON Array of prefixes for event names that will not be reported to Avo Inspector",
+    "valueHint": "JSON Array of event name prefixes that will not be reported to Avo Inspector",
+    "valueUnit": "JSON Array"
+  },
+  {
+    "type": "TEXT",
     "name": "propertiesToExclude",
     "displayName": "Property names to ignore",
     "simpleValueType": true,
@@ -51,6 +74,29 @@ ___TEMPLATE_PARAMETERS___
     "defaultValue": "[\"userId\", \"segmentAnonymousId\", \"event\", \"language\",       \"page_location\", \"page_referrer\", \"page_title\", \"screen_resolution\",       \"engagement_time_msec\", \"gclid\", \"session_id\", \"session_number\"]",
     "help": "JSON Array of property names that will not be reported to Avo Inspector",
     "valueHint": "JSON Array of property names that will not be reported to Avo Inspector",
+    "valueUnit": "JSON Array"
+  },
+  {
+    "type": "TEXT",
+    "name": "propertiesToInclude",
+    "displayName": "Property names to force include",
+    "simpleValueType": true,
+    "defaultValue": "[]",
+    "canBeEmptyString": false,
+    "help": "JSON Array of property names that will be force included in Avo Inspector, even if they match excluded prefixes",
+    "textAsList": false,
+    "valueHint": "JSON Array of property names that will be force included in Avo Inspector",
+    "valueUnit": "JSON Array"
+  },
+  {
+    "type": "TEXT",
+    "name": "propertyPrefixesToExclude",
+    "displayName": "Property prefixes to ignore",
+    "simpleValueType": true,
+    "canBeEmptyString": false,
+    "defaultValue": "[\"gtm.\", \"gtag.\", \"firebase_\", \"ga_\", \"google_\", \"_\"]",
+    "help": "JSON Array of prefixes for property names that will not be reported to Avo Inspector",
+    "valueHint": "JSON Array of property name prefixes that will not be reported to Avo Inspector",
     "valueUnit": "JSON Array"
   },
   {
@@ -87,17 +133,27 @@ const INSTANCE_STORAGE_KEY = 'Avo Inspector Init';
 
 const isPreview = getContainerVersion().previewMode;
 
-const arrayNotIncludes = (arr, searchString) => {
+const arrayIncludes = (arr, searchString) => {
   for (var i = 0; i < arr.length; i++) {
     if (arr[i] === searchString) {
-      return false;
+      return true;
     }
   }
-  return true;
+  return false;
 };
 
-const stringNotStartsWith = (str, startStr) => {
-  return str.indexOf(startStr) !== 0;
+const stringStartsWith = (str, startStr) => {
+  return str.indexOf(startStr) === 0;
+};
+
+// Check if a string starts with any of the prefixes in the array
+const startsWithOneOfPrefixes = (str, prefixes) => {
+  for (var i = 0; i < prefixes.length; i++) {
+    if (stringStartsWith(str, prefixes[i])) {
+      return true;
+    }
+  }
+  return false;
 };
 
 const onfailure = () => {
@@ -149,8 +205,25 @@ const inspectEventFromDataLyaer = (eventName, eventId) => {
 
 const checkInput = (eventName, uniqueEventId) => {  
   var eventsToExclude = JSON.parse(data.eventsToExclude);
-  var notInIgnoreList = arrayNotIncludes(eventsToExclude, eventName); 
-  return getType(uniqueEventId) !== "undefined" && getType(eventName) !== "undefined" && stringNotStartsWith(eventName, "gtm.") && notInIgnoreList;
+  var eventsToInclude = JSON.parse(data.eventsToInclude);
+  var eventPrefixesToExclude = data.eventPrefixesToExclude ? JSON.parse(data.eventPrefixesToExclude) : [];
+  
+  // Check if event is force included (highest priority)
+  if (arrayIncludes(eventsToInclude, eventName)) {
+    return getType(uniqueEventId) !== "undefined" && getType(eventName) !== "undefined";
+  }
+  
+  // Check if event is explicitly excluded
+  if (arrayIncludes(eventsToExclude, eventName)) {
+    return false;
+  }
+  
+  // Check if event starts with any excluded prefix
+  if (eventPrefixesToExclude.length > 0 && startsWithOneOfPrefixes(eventName, eventPrefixesToExclude)) {
+    return false;
+  }
+  
+  return getType(uniqueEventId) !== "undefined" && getType(eventName) !== "undefined";
 };
 
 function getDataLayerEventWithUniqueId(uniqueEventId) {
@@ -165,6 +238,7 @@ function getDataLayerEventWithUniqueId(uniqueEventId) {
   }
   return matchingEvent;
 }
+
 function checkDataLayerEventMatchCallingEvent(dataLayerEvent, eventName) {
   if (getType(dataLayerEvent) !== "undefined" && getType(dataLayerEvent) !== "null") {
     var dataLayerEventName = dataLayerEvent.event;
@@ -177,23 +251,40 @@ function checkDataLayerEventMatchCallingEvent(dataLayerEvent, eventName) {
   }
   return false;
 }
+
 function handleEvent(dataLayerEvent) {    
   var propertiesToExclude = JSON.parse(data.propertiesToExclude);
+  var propertiesToInclude = JSON.parse(data.propertiesToInclude);
+  var propertyPrefixesToExclude = data.propertyPrefixesToExclude ? JSON.parse(data.propertyPrefixesToExclude) : [];
   var eventProperties = {};
+  
   Object.keys(dataLayerEvent).forEach((key) => {
-    if (arrayNotIncludes(propertiesToExclude, key) &&
-      stringNotStartsWith(key, "gtm.") &&
-      stringNotStartsWith(key, "gtag.") &&
-      stringNotStartsWith(key, "firebase_") &&
-      stringNotStartsWith(key, "ga_") &&
-      stringNotStartsWith(key, "google_") &&
-      stringNotStartsWith(key, "_")
-    ) {
+    // Check if property is force included (highest priority)
+    if (arrayIncludes(propertiesToInclude, key)) {
       eventProperties[key] = dataLayerEvent[key];
-    } else if (isPreview) {
-      log(LOG_PREFIX + 'Property ' + key + ' filtered out and not sent to Avo Inspector because of the property name');
+      return;
     }
+    
+    // Check if property is explicitly excluded
+    if (arrayIncludes(propertiesToExclude, key)) {
+      if (isPreview) {
+        log(LOG_PREFIX + 'Property ' + key + ' filtered out and not sent to Avo Inspector because it is in the exclusion list');
+      }
+      return;
+    }
+    
+    // Check if property starts with any excluded prefix
+    if (propertyPrefixesToExclude.length > 0 && startsWithOneOfPrefixes(key, propertyPrefixesToExclude)) {
+      if (isPreview) {
+        log(LOG_PREFIX + 'Property ' + key + ' filtered out and not sent to Avo Inspector because of its prefix');
+      }
+      return;
+    }
+    
+    // Include the property if it passed all filters
+    eventProperties[key] = dataLayerEvent[key];
   });
+  
   callInWindow('inspector.trackSchemaFromEvent', dataLayerEvent.event, eventProperties);
   return;
 }
@@ -654,5 +745,6 @@ scenarios: []
 ___NOTES___
 
 Created on 27/08/2023, 20:48:29
+
 
 
