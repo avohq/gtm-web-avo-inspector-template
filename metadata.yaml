@@ -13,7 +13,7 @@
 # limitations under the License.
 
 homepage: "https://www.avo.app"
-documentation: "https://www.avo.app/docs/data-design/start-using-inspector"
+documentation: "https://www.avo.app/docs/inspector/connect-inspector-to-gtm#inspector-client-side-gtm-integration-with-a-template"
 versions:
   - sha: 7566a23d11c6f5dff51bc39ab26390ea65a5041a
     changeNotes: Initial Version
