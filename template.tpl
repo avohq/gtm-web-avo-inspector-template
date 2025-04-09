@@ -45,11 +45,11 @@ ___TEMPLATE_PARAMETERS___
   {
     "type": "TEXT",
     "name": "eventsToInclude",
-    "displayName": "Event names to force include, even when they start with an excluded prefix",
+    "displayName": "Event names to force include (highest filter priority)",
     "simpleValueType": true,
     "defaultValue": "[]",
     "canBeEmptyString": false,
-    "help": "JSON Array of event names that will be force included in Avo Inspector, even if they match excluded prefixes",
+    "help": "JSON Array of event names that will be force included in Avo Inspector, even if they match exclude rules",
     "textAsList": false,
     "valueHint": "JSON Array of event names that will be force included in Avo Inspector",
     "valueUnit": "JSON Array"
@@ -79,11 +79,11 @@ ___TEMPLATE_PARAMETERS___
   {
     "type": "TEXT",
     "name": "propertiesToInclude",
-    "displayName": "Property names to force include",
+    "displayName": "Property names to force include (highest filter priority)",
     "simpleValueType": true,
     "defaultValue": "[]",
     "canBeEmptyString": false,
-    "help": "JSON Array of property names that will be force included in Avo Inspector, even if they match excluded prefixes",
+    "help": "JSON Array of property names that will be force included in Avo Inspector, even if they match exclude rules",
     "textAsList": false,
     "valueHint": "JSON Array of property names that will be force included in Avo Inspector",
     "valueUnit": "JSON Array"
