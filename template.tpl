@@ -110,6 +110,14 @@ ___TEMPLATE_PARAMETERS___
     "name": "appName",
     "displayName": "Application name",
     "simpleValueType": true
+  },
+  {
+    "type": "TEXT",
+    "name": "publicEncryptionKey",
+    "displayName": "Public Encryption Key (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Optional ECIES public encryption key for encrypting Inspector payloads. Leave empty to send unencrypted."
   }
 ]
 
@@ -170,8 +178,12 @@ const onsuccess = () => {
     setInWindow('inspector.__VERSION__', "1.0.0", true);
     setInWindow('inspector.__APP_NAME__', data.appName, true);
 
+    if (data.publicEncryptionKey) {
+      setInWindow('inspector.__PUBLIC_ENCRYPTION_KEY__', data.publicEncryptionKey, true);
+    }
+
     var _inspector = copyFromWindow("inspector");
-  
+
     _inspector.load();
     var dataLayerArray = copyFromWindow('dataLayer');
     for (var i = 0; i < dataLayerArray.length; i++) {
@@ -633,6 +645,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 1,
                     "string": "inspector.__ENV__"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "inspector.__PUBLIC_ENCRYPTION_KEY__"
                   },
                   {
                     "type": 8,
