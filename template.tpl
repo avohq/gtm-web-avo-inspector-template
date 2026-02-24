@@ -110,6 +110,14 @@ ___TEMPLATE_PARAMETERS___
     "name": "appName",
     "displayName": "Application name",
     "simpleValueType": true
+  },
+  {
+    "type": "TEXT",
+    "name": "publicEncryptionKey",
+    "displayName": "Public Encryption Key (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Optional ECIES public encryption key for property value validation. Without a key, property values are not sent. \u003ca href=\"https://www.avo.app/docs/inspector/inspector-debugger#generating-encryption-keys\"\u003eLearn more\u003c/a\u003e"
   }
 ]
 
@@ -170,14 +178,18 @@ const onsuccess = () => {
     setInWindow('inspector.__VERSION__', "1.0.0", true);
     setInWindow('inspector.__APP_NAME__', data.appName, true);
 
+    if (data.publicEncryptionKey) {
+      setInWindow('inspector.__PUBLIC_ENCRYPTION_KEY__', data.publicEncryptionKey, true);
+    }
+
     var _inspector = copyFromWindow("inspector");
-  
+
     _inspector.load();
     var dataLayerArray = copyFromWindow('dataLayer');
     for (var i = 0; i < dataLayerArray.length; i++) {
         var dataLayerEvent = dataLayerArray[i];
         if (dataLayerEvent.event) {
-            inspectEventFromDataLyaer(dataLayerEvent.event, dataLayerEvent["gtm.uniqueEventId"]);
+            inspectEventFromDataLayer(dataLayerEvent.event, dataLayerEvent["gtm.uniqueEventId"]);
         }
     }
   }
@@ -186,7 +198,7 @@ const onsuccess = () => {
   return;
 };
 
-const inspectEventFromDataLyaer = (eventName, eventId) => {
+const inspectEventFromDataLayer = (eventName, eventId) => {
   if (isPreview) {
     log(LOG_PREFIX, 'Inspecting', eventName, eventId);
   }
@@ -291,11 +303,11 @@ function handleEvent(dataLayerEvent) {
 
 const alreadyInit = templateStorage.getItem(INSTANCE_STORAGE_KEY);
 if (!alreadyInit) {
-  injectScript("https://cdn.avo.app/inspector/inspector-gtm-v1.min.js", onsuccess, onfailure, 'inspector_cache');
+  injectScript("https://cdn.avo.app/inspector/inspector-gtm-v2.min.js", onsuccess, onfailure, 'inspector_cache');
 } else {
   var eventName = copyFromDataLayer("event");
   var eventId = copyFromDataLayer("gtm.uniqueEventId");
-  inspectEventFromDataLyaer(eventName, eventId);
+  inspectEventFromDataLayer(eventName, eventId);
   data.gtmOnSuccess();
 }
 
@@ -647,6 +659,45 @@ ___WEB_PERMISSIONS___
                     "boolean": false
                   }
                 ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "inspector.__PUBLIC_ENCRYPTION_KEY__"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
               }
             ]
           }
@@ -702,7 +753,7 @@ ___WEB_PERMISSIONS___
             "listItem": [
               {
                 "type": 1,
-                "string": "https://cdn.avo.app/inspector/inspector-gtm-v1.min.js"
+                "string": "https://cdn.avo.app/inspector/inspector-gtm-v2.min.js"
               }
             ]
           }
