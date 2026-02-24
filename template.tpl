@@ -117,7 +117,7 @@ ___TEMPLATE_PARAMETERS___
     "displayName": "Public Encryption Key (optional)",
     "simpleValueType": true,
     "canBeEmptyString": true,
-    "help": "Optional ECIES public encryption key for encrypting Inspector payloads. Leave empty to send unencrypted. \u003ca href=\"https://www.avo.app/docs/inspector/inspector-debugger#generating-encryption-keys\"\u003eLearn more\u003c/a\u003e"
+    "help": "Optional ECIES public encryption key for property value validation. Without a key, property values are not sent. \u003ca href=\"https://www.avo.app/docs/inspector/inspector-debugger#generating-encryption-keys\"\u003eLearn more\u003c/a\u003e"
   }
 ]
 
