@@ -303,7 +303,7 @@ function handleEvent(dataLayerEvent) {
 
 const alreadyInit = templateStorage.getItem(INSTANCE_STORAGE_KEY);
 if (!alreadyInit) {
-  injectScript("https://cdn.avo.app/inspector/inspector-gtm-v1.min.js", onsuccess, onfailure, 'inspector_cache');
+  injectScript("https://cdn.avo.app/inspector/inspector-gtm-v2.min.js", onsuccess, onfailure, 'inspector_cache');
 } else {
   var eventName = copyFromDataLayer("event");
   var eventId = copyFromDataLayer("gtm.uniqueEventId");
@@ -753,7 +753,7 @@ ___WEB_PERMISSIONS___
             "listItem": [
               {
                 "type": 1,
-                "string": "https://cdn.avo.app/inspector/inspector-gtm-v1.min.js"
+                "string": "https://cdn.avo.app/inspector/inspector-gtm-v2.min.js"
               }
             ]
           }
