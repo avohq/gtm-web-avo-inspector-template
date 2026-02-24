@@ -16,8 +16,15 @@ homepage: "https://www.avo.app"
 documentation: "https://www.avo.app/docs/inspector/connect-inspector-to-gtm#inspector-client-side-gtm-integration-with-a-template"
 versions:
   # Latest version
+  - sha: 7851164bb18332418ab8d82c13bb7390775ac677
+    changeNotes: |
+      Add optional public encryption key parameter.
+      When provided, property values are encrypted and sent to Avo for value validation.
+      Without a key, property values are not sent (same behavior as before).
+      Property value validation added in dev and staging environments.
+      Stream ID support added.
+  # Older versions
   - sha: 10fee819aebe5fe45486f684c43b1c005a7d6b90
     changeNotes: Enhance event and property filters
-  # Older versions
   - sha: 7566a23d11c6f5dff51bc39ab26390ea65a5041a
     changeNotes: Initial Version
