@@ -842,8 +842,652 @@ ___WEB_PERMISSIONS___
 
 ___TESTS___
 
-scenarios: []
+scenarios:
+- name: Backward compatibility - neither hint param set leaves the call unchanged
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
 
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('injectScript').wasNotCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.path).isEqualTo('inspector.trackSchemaFromEvent');
+    assertThat(call.length).isEqualTo(3);
+    assertThat(call.args.length).isEqualTo(2);
+
+- name: outputReference set, originHint unset omits originHint key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(call.args[2].hasOwnProperty('originHint')).isEqualTo(false);
+
+- name: outputReference undefined (old tag instance) omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference empty string omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = '';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference whitespace-only omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = '   ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference null omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = null;
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference as an empty object omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = {};
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference as an empty array omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = [];
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: originHint as a plain string is trimmed and sent
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = '  android  ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('android');
+    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+
+- name: originHint as a number is stringified
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 123;
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('123');
+
+- name: originHint as a boolean is stringified
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = true;
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('true');
+
+- name: originHint undefined omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: Both outputReference and originHint set are both present
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'android';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(call.args[2].originHint).isEqualTo('android');
+
+- name: Only originHint set leaves outputReference absent
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 'android';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('android');
+    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+
+- name: Neither outputReference nor originHint ever appears as a propertyName in eventProperties
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'android';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    const eventProperties = call.args[1];
+    assertThat(eventProperties.hasOwnProperty('outputReference')).isEqualTo(false);
+    assertThat(eventProperties.hasOwnProperty('originHint')).isEqualTo(false);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(call.args[2].originHint).isEqualTo('android');
+
+- name: Event data property literally named outputReference coexists with the tag-config outputReference
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, outputReference: 42 }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-config-value';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    const eventProperties = call.args[1];
+    assertThat(eventProperties.outputReference).isEqualTo(42);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-config-value');
+
+- name: Two tag instances differing only in originHint produce identical eventProperties
+  code: |-
+    const JSON = require('JSON');
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockDataA = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataA.originHint = 'ios';
+    runCode(mockDataA);
+
+    const mockDataB = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataB.originHint = 'android';
+    runCode(mockDataB);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(2);
+    const callA = capturedCalls[0];
+    const callB = capturedCalls[1];
+    assertThat(JSON.stringify(callA.args[1])).isEqualTo(JSON.stringify(callB.args[1]));
+    assertThat(callA.args[2].originHint).isEqualTo('ios');
+    assertThat(callB.args[2].originHint).isEqualTo('android');
+
+- name: Two tag instances differing only in outputReference produce identical eventProperties
+  code: |-
+    const JSON = require('JSON');
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockDataA = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataA.outputReference = 'meta-aaa';
+    runCode(mockDataA);
+
+    const mockDataB = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataB.outputReference = 'meta-bbb';
+    runCode(mockDataB);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(2);
+    const callA = capturedCalls[0];
+    const callB = capturedCalls[1];
+    assertThat(JSON.stringify(callA.args[1])).isEqualTo(JSON.stringify(callB.args[1]));
+    assertThat(callA.args[2].outputReference).isEqualTo('meta-aaa');
+    assertThat(callA.args[2].hasOwnProperty('originHint')).isEqualTo(false);
+    assertThat(callB.args[2].outputReference).isEqualTo('meta-bbb');
+    assertThat(callB.args[2].hasOwnProperty('originHint')).isEqualTo(false);
 
 ___NOTES___
 
