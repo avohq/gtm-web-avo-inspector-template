@@ -21,7 +21,8 @@ versions:
       Add optional Output reference and Origin hint parameters.
       Output reference lets a tag instance observe a specific output's checkpoint instead of the gateway (container) level; Origin hint attaches a low-cardinality source label to each observation.
       Both are sent to the Avo Inspector JS SDK as top-level fields alongside the event schema, for customers adopting one gateway-scoped Inspector API key per web GTM container.
-      Backward compatible: existing tag instances leave both parameters unset and send nothing new.
+      Add an optional App version parameter to set the version reported for an event alongside Origin hint.
+      Backward compatible: existing tag instances leave these parameters unset and send nothing new.
   # Older versions
   - sha: 7851164bb18332418ab8d82c13bb7390775ac677
     changeNotes: |

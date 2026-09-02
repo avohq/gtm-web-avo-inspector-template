@@ -36,6 +36,21 @@ On first load, this tag replays existing `dataLayer` events using the **initiali
 
 > A `dataLayer` property literally named `outputReference` or `originHint` (unrelated business data) is unaffected by this feature. It still appears in the event schema exactly as before — the top-level `outputReference`/`originHint` fields described here come only from this tag's **Output reference** / **Origin hint** parameters, never from event data, and neither one overwrites or is affected by the other even though they share a key name.
 
+## App version
+
+**App version (optional)** is a value identifying which version of the source app produced the event, e.g. `{{DLV - app_version}}`. Like Origin hint, it is trimmed and sent as a top-level field alongside the event schema, never inside the event's own properties.
+
+How it combines with **Origin hint** and the Inspector JS SDK's own configured version:
+
+| Origin hint | App version | Version reported for the event |
+| --- | --- | --- |
+| set | set | the App version value |
+| set | empty | none |
+| empty | set | the App version value (overrides the SDK's configured version) |
+| empty | empty | the SDK's configured version |
+
+This template's own configured version is a fixed placeholder, so with **Origin hint** set and **App version** left empty, the event carries no app version at all.
+
 ## How to publish an update
 
 https://developers.google.com/tag-platform/tag-manager/templates/gallery#update_your_template

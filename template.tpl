@@ -123,6 +123,14 @@ ___TEMPLATE_PARAMETERS___
   },
   {
     "type": "TEXT",
+    "name": "appVersion",
+    "displayName": "App version (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Version of the source app that produced the event, e.g. {{DLV - app_version}}. With Origin hint set, this is the version reported for the event (none when left empty); without Origin hint it overrides the default version only when provided."
+  },
+  {
+    "type": "TEXT",
     "name": "appName",
     "displayName": "Application name",
     "simpleValueType": true
@@ -344,6 +352,7 @@ function handleEvent(dataLayerEvent) {
   var hints = {};
   setHintField(hints, 'outputReference', data.outputReference);
   setHintField(hints, 'originHint', data.originHint);
+  setHintField(hints, 'appVersion', data.appVersion);
 
   if (Object.keys(hints).length > 0) {
     callInWindow('inspector.trackSchemaFromEvent', dataLayerEvent.event, eventProperties, hints);
@@ -1375,6 +1384,7 @@ scenarios:
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
     mockData.outputReference = 'meta-x7k2q';
     mockData.originHint = 'android';
+    mockData.appVersion = '5.1.0';
 
     runCode(mockData);
 
@@ -1384,8 +1394,10 @@ scenarios:
     const eventProperties = call.args[1];
     assertThat(eventProperties.hasOwnProperty('outputReference')).isEqualTo(false);
     assertThat(eventProperties.hasOwnProperty('originHint')).isEqualTo(false);
+    assertThat(eventProperties.hasOwnProperty('appVersion')).isEqualTo(false);
     assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
     assertThat(call.args[2].originHint).isEqualTo('android');
+    assertThat(call.args[2].appVersion).isEqualTo('5.1.0');
 
 - name: Event data property literally named outputReference coexists with the tag-config outputReference
   code: |-
@@ -1509,6 +1521,121 @@ scenarios:
     assertThat(callA.args[2].hasOwnProperty('originHint')).isEqualTo(false);
     assertThat(callB.args[2].outputReference).isEqualTo('meta-bbb');
     assertThat(callB.args[2].hasOwnProperty('originHint')).isEqualTo(false);
+
+- name: originHint and appVersion set are both present
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 'ios';
+    mockData.appVersion = '5.1.0';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('ios');
+    assertThat(call.args[2].appVersion).isEqualTo('5.1.0');
+    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+
+- name: appVersion set without originHint is sent alone
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.appVersion = '  2.0.0  ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].appVersion).isEqualTo('2.0.0');
+    assertThat(call.args[2].hasOwnProperty('originHint')).isEqualTo(false);
+    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+
+- name: appVersion whitespace-only omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    var capturedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
+      var hasHints = hints !== undefined;
+      capturedCalls.push({
+        path: path,
+        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+        length: hasHints ? 4 : 3
+      });
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 'ios';
+    mockData.appVersion = '   ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('ios');
+    assertThat(call.args[2].hasOwnProperty('appVersion')).isEqualTo(false);
 
 ___NOTES___
 
