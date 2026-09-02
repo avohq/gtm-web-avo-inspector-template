@@ -107,6 +107,22 @@ ___TEMPLATE_PARAMETERS___
   },
   {
     "type": "TEXT",
+    "name": "outputReference",
+    "displayName": "Output reference (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Paste the output's reference from Avo (e.g. meta-x7k2q) when this tag observes one destination's payload; leave empty to observe at the gateway level."
+  },
+  {
+    "type": "TEXT",
+    "name": "originHint",
+    "displayName": "Origin hint (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Value identifying which source the event came from, e.g. {{DLV - platform}}; use the same field in every Avo tag in the container and map each value to a source in Avo; low-cardinality values only, never a user identifier."
+  },
+  {
+    "type": "TEXT",
     "name": "appName",
     "displayName": "Application name",
     "simpleValueType": true
