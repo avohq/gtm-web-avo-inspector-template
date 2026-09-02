@@ -859,6 +859,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -878,6 +879,7 @@ scenarios:
     assertThat(call.path).isEqualTo('inspector.trackSchemaFromEvent');
     assertThat(call.length).isEqualTo(3);
     assertThat(call.args.length).isEqualTo(2);
+    assertApi('callInWindow').wasCalledWith('inspector.trackSchemaFromEvent', 'test_event', { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' });
 
 - name: outputReference set, originHint unset omits originHint key
   code: |-
@@ -895,6 +897,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -931,6 +934,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -947,6 +951,7 @@ scenarios:
     assertThat(capturedCalls.length).isEqualTo(1);
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(3);
+    assertApi('callInWindow').wasCalledWith('inspector.trackSchemaFromEvent', 'test_event', { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' });
 
 - name: outputReference empty string omits the key
   code: |-
@@ -964,6 +969,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -998,6 +1004,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1032,6 +1039,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1066,6 +1074,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1100,6 +1109,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1134,6 +1144,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1170,6 +1181,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1205,6 +1217,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1240,6 +1253,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1256,6 +1270,7 @@ scenarios:
     assertThat(capturedCalls.length).isEqualTo(1);
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(3);
+    assertApi('callInWindow').wasCalledWith('inspector.trackSchemaFromEvent', 'test_event', { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' });
 
 - name: Both outputReference and originHint set are both present
   code: |-
@@ -1273,6 +1288,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1310,6 +1326,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1346,6 +1363,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1385,6 +1403,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1422,6 +1441,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,
@@ -1463,6 +1483,7 @@ scenarios:
 
     var capturedCalls = [];
     mock('callInWindow', function(path, eventName, eventProperties, hints) {
+      if (path !== 'inspector.trackSchemaFromEvent') { return; }
       var hasHints = hints !== undefined;
       capturedCalls.push({
         path: path,

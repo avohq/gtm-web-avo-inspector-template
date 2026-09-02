@@ -25,6 +25,8 @@ Hints are passed to the Avo Inspector JS SDK as top-level fields on each observa
 
 On first load, this tag replays existing `dataLayer` events using the **initializing** tag instance's **Output reference** / **Origin hint** — the same tag instance whose script sets up Avo Inspector on the page, matching how filters are replayed today.
 
+**Output reference** and **Origin hint** require Avo Inspector JS SDK 3.3.0 or later, which this tag loads from `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`. If events from a configured tag instance do not show these fields, confirm the page is loading the current SDK build — a stale cached bundle ignores the extra argument silently.
+
 ## Origin hint
 
 **Origin hint** is a value identifying which source produced the event, e.g. `{{DLV - platform}}`. Use the same Data Layer Variable consistently across every Avo tag in the container, then map each value to a source in Avo.
