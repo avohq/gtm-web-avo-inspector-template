@@ -16,6 +16,13 @@ homepage: "https://www.avo.app"
 documentation: "https://www.avo.app/docs/inspector/connect-inspector-to-gtm#inspector-client-side-gtm-integration-with-a-template"
 versions:
   # Latest version
+  - sha: "<PLACEHOLDER: fill in with the commit sha at publish time>"
+    changeNotes: |
+      Add optional Output reference and Origin hint parameters.
+      Output reference lets a tag instance observe a specific output's checkpoint instead of the gateway (container) level; Origin hint attaches a low-cardinality source label to each observation.
+      Both are sent to the Avo Inspector JS SDK as top-level fields alongside the event schema, for customers adopting one gateway-scoped Inspector API key per web GTM container.
+      Backward compatible: existing tag instances leave both parameters unset and send nothing new.
+  # Older versions
   - sha: 7851164bb18332418ab8d82c13bb7390775ac677
     changeNotes: |
       Add optional public encryption key parameter.
@@ -23,7 +30,6 @@ versions:
       Without a key, property values are not sent (same behavior as before).
       Property value validation added in dev and staging environments.
       Stream ID support added.
-  # Older versions
   - sha: 10fee819aebe5fe45486f684c43b1c005a7d6b90
     changeNotes: Enhance event and property filters
   - sha: 7566a23d11c6f5dff51bc39ab26390ea65a5041a
