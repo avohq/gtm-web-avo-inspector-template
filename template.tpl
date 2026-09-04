@@ -1418,6 +1418,75 @@ scenarios:
     // so observing anything here would double-report.
     assertThat(capturedCalls.length).isEqualTo(0);
 
+- name: Two instances both inject before either callback runs, matching GTM's queue
+  code: |-
+    // The three scenarios above drive one runCode at a time and vary
+    // templateStorage to stand in for the other instance. This one runs the
+    // real ordering instead: GTM loads injectScript asynchronously and queues
+    // every callback registered against the same cacheToken, so on a cold page
+    // both instances execute their top-level code, both see empty storage, and
+    // both inject before either onSuccess fires.
+    var store = {};
+    mockObject('templateStorage', {
+      getItem: function(key) { return store[key]; },
+      setItem: function(key, value) { store[key] = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+
+    // Queue the callbacks instead of running them, the way GTM does.
+    var pendingCallbacks = [];
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) {
+      pendingCallbacks.push(onSuccess);
+    });
+
+    const gatewayInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    gatewayInstance.outputReference = 'meta-x7k2q';
+    gatewayInstance.originHint = 'web';
+
+    const outputInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    outputInstance.outputReference = 'ga4-9f3';
+    outputInstance.originHint = 'web';
+
+    runCode(gatewayInstance);
+    runCode(outputInstance);
+
+    // Both instances injected, neither callback has fired, nothing observed.
+    assertThat(pendingCallbacks.length).isEqualTo(2);
+    assertThat(capturedCalls.length).isEqualTo(0);
+
+    // The script loads once and GTM drains the queue in registration order.
+    pendingCallbacks[0]();
+    pendingCallbacks[1]();
+
+    // First callback initializes and replays the whole dataLayer with ITS
+    // hints. Second callback finds a signature that is not its own, so it
+    // observes only its own triggering event and does not replay again.
+    assertThat(store['Avo Inspector Init']).isEqualTo('meta-x7k2q|web|');
+    assertThat(capturedCalls.length).isEqualTo(3);
+
+    assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('other_event');
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta-x7k2q');
+
+    // The output-level instance reports its own event under its own reference.
+    // This is the assertion the feature exists for: one gateway key, two tag
+    // instances on the same event, two distinct checkpoints.
+    assertThat(capturedCalls[2].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[2].args[2].outputReference).isEqualTo('ga4-9f3');
+    assertThat(capturedCalls[2].args[2].originHint).isEqualTo('web');
+
 setup: |-
   // Runs before every scenario. Holds only what no scenario varies: the
   // container is not in preview mode, the tag is triggered by test_event with
