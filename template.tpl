@@ -921,7 +921,7 @@ scenarios:
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
-    assertThat(call.args[2].hasOwnProperty('originHint')).isEqualTo(false);
+    assertThat(Object.keys(call.args[2]).indexOf('originHint')).isEqualTo(-1);
 
 - name: outputReference empty string omits the key
   code: |-
@@ -1037,7 +1037,7 @@ scenarios:
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].originHint).isEqualTo('android');
-    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
 
 - name: originHint as a number is stringified
   code: |-
@@ -1120,7 +1120,7 @@ scenarios:
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].originHint).isEqualTo('android');
-    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
 
 - name: Neither outputReference nor originHint ever appears as a propertyName in eventProperties
   code: |-
@@ -1142,9 +1142,9 @@ scenarios:
     assertThat(capturedCalls.length).isEqualTo(1);
     const call = capturedCalls[0];
     const eventProperties = call.args[1];
-    assertThat(eventProperties.hasOwnProperty('outputReference')).isEqualTo(false);
-    assertThat(eventProperties.hasOwnProperty('originHint')).isEqualTo(false);
-    assertThat(eventProperties.hasOwnProperty('appVersion')).isEqualTo(false);
+    assertThat(Object.keys(eventProperties).indexOf('outputReference')).isEqualTo(-1);
+    assertThat(Object.keys(eventProperties).indexOf('originHint')).isEqualTo(-1);
+    assertThat(Object.keys(eventProperties).indexOf('appVersion')).isEqualTo(-1);
     assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
     assertThat(call.args[2].originHint).isEqualTo('android');
     assertThat(call.args[2].appVersion).isEqualTo('5.1.0');
@@ -1220,9 +1220,9 @@ scenarios:
     const callB = capturedCalls[1];
     assertThat(JSON.stringify(callA.args[1])).isEqualTo(JSON.stringify(callB.args[1]));
     assertThat(callA.args[2].outputReference).isEqualTo('meta-aaa');
-    assertThat(callA.args[2].hasOwnProperty('originHint')).isEqualTo(false);
+    assertThat(Object.keys(callA.args[2]).indexOf('originHint')).isEqualTo(-1);
     assertThat(callB.args[2].outputReference).isEqualTo('meta-bbb');
-    assertThat(callB.args[2].hasOwnProperty('originHint')).isEqualTo(false);
+    assertThat(Object.keys(callB.args[2]).indexOf('originHint')).isEqualTo(-1);
 
 - name: originHint and appVersion set are both present
   code: |-
@@ -1245,7 +1245,7 @@ scenarios:
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].originHint).isEqualTo('ios');
     assertThat(call.args[2].appVersion).isEqualTo('5.1.0');
-    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
 
 - name: appVersion set without originHint is sent alone
   code: |-
@@ -1266,8 +1266,8 @@ scenarios:
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].appVersion).isEqualTo('2.0.0');
-    assertThat(call.args[2].hasOwnProperty('originHint')).isEqualTo(false);
-    assertThat(call.args[2].hasOwnProperty('outputReference')).isEqualTo(false);
+    assertThat(Object.keys(call.args[2]).indexOf('originHint')).isEqualTo(-1);
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
 
 - name: appVersion whitespace-only omits the key
   code: |-
@@ -1289,7 +1289,7 @@ scenarios:
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].originHint).isEqualTo('ios');
-    assertThat(call.args[2].hasOwnProperty('appVersion')).isEqualTo(false);
+    assertThat(Object.keys(call.args[2]).indexOf('appVersion')).isEqualTo(-1);
 
 - name: First load - the initializing instance replays the dataLayer with its own hints
   code: |-
