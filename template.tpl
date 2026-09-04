@@ -20,7 +20,7 @@ ___INFO___
     "displayName": "Avo",
     "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAM9SURBVHgB7ZkxTBNRGMf/FQgJpmcCJiS2MSZG0jKa2E7oACYmRkPLKFAWQoyAI0IcHBB0UyhxlLYSJygxYRKNJi7t4OBATZw0bbrQ5doFF33flR5X4Oi7906vJPdLmutd7i7f/3vfe+/7vvNc7gn8wSnmDE45rgCncQU4jSvAaVwBTtMKm1G8Xvj8PgSDQf1aoVBAIV9Anh2P48peJ3r2uvTzYmsFXzuK4ME2AUPRCKKRQYRDIdN7SEA2m8XS8kqdmBuVSxgvXdXPyfj7HVvgQVpAOBzC88UF+H2+hvfSPf4ICY1gNZHEy+U4yuUyZJAS8HhuFmOx0bpr5Nnt7Q/YyX3Xr/lZSIVD1+pGh54bGOjH8EgMKEEYYQFrqUSdQZn90KCjGTQC5P2x2AgURdHO322m8en2C+ALhBBahcjzNeNVVcXMozncY548yXiCRmcpHsfdwShyuZx2TVG8uMlGQhTLAmjoa2FDxg+PxrCeTlt5hSbkDhNh9bnjsCSAhtwY8zOzc3WxbpWnC4v6SIhiScD01AN9tdlIb+I9m6wyqGoZ8wvPIIMlASHDpF1iS6Ad0LxZ39iEKNwCaL03et9sVxVB5l3cAoKBgP5fNnTshFtAryG3yRfyaBa4Bfh8F/T/+bx94SMLtwBjznKO7aLNArcAWvKaEW4BO4YNh1akZoFbQM6w4w70i+cudsMtgDYcyn0ISuS8rPKyC55awgxLO/FqMqUdKYN8ODUJOyDjh6KDEMWagERCHwVK6k4qH3mg+vkNqytksCSAVqLl+Ip+/molzor3AEQg49dSSanwISzXA69ZLVvL4ymU1pLJI2VlI8hoMl5UvJGWzq7zT2ARqnmpdULpRXt7O6739WltlN3SrtZCMYO8PjExXm0C+Kuep5D8OP8WF3+16fcV2yrYUn6AB4/MF5rpyUmtRjBSa51QoaPu7969LBEkbx+eM3QvFfW3vnUfbav4/0Nbhepb8viUodA5aJ2YP0deX02kqouCJrIbokj3hWg+0G+IjI42bmxtsOLlwHB5PP/iIx+JoAnu9VaTvnJZRSaTNTX6cGux0vIbn8/+BA8e9yulw7gCnMYV4DSuAKdxBTjNXy3yL/9pRPhYAAAAAElFTkSuQmCC"
   },
-  "description": "Sends your events metadata to Avo Inspector to monitor and improve the data quality. Find more at https://www.avo.app/docs/inspector/start-using-inspector.",
+  "description": "Sends your events metadata to Avo Inspector to monitor and improve the data quality. Optional Output reference, Origin hint and App version parameters let one gateway-scoped Inspector API key tell observations apart. Find more at https://www.avo.app/docs/inspector/start-using-inspector.",
   "containerContexts": [
     "WEB"
   ]
@@ -127,7 +127,7 @@ ___TEMPLATE_PARAMETERS___
     "displayName": "App version (optional)",
     "simpleValueType": true,
     "canBeEmptyString": true,
-    "help": "Version of the source app that produced the event, e.g. {{DLV - app_version}}. With Origin hint set, this is the version reported for the event (none when left empty); without Origin hint it overrides the default version only when provided."
+    "help": "Version of the source app that produced the event, e.g. {{DLV - app_version}}. With Origin hint set, this is the version reported for the event (null when left empty); without Origin hint it overrides the default version only when provided. Set this whenever Origin hint is set: until the Inspector backend is updated, events that arrive with a null app version are discarded."
   },
   {
     "type": "TEXT",
@@ -188,10 +188,10 @@ const startsWithOneOfPrefixes = (str, prefixes) => {
   return false;
 };
 
-// --- Gateway coordinate fields (outputReference, originHint, ...) ---
-// Normalizes a tag-parameter value into a string safe to attach to the track
-// body, or '' when there is nothing sendable. Caller omits the key entirely
-// when the result is ''.
+// --- Gateway coordinate fields (outputReference, originHint, appVersion) ---
+// Normalizes a tag-parameter value into a string safe to forward to the Avo
+// Inspector JS SDK, or '' when there is nothing sendable. Caller omits the key
+// entirely when the result is ''.
 function toHintString(value) {
   var t = getType(value);
   if (t === 'string') {
@@ -199,22 +199,34 @@ function toHintString(value) {
   } else if (t === 'number' || t === 'boolean') {
     return '' + value;
   }
-  // undefined, null, object, array -> nothing sendable; the server parser
-  // only decodes optional strings and silently drops other JSON types, so
-  // stringifying (or sending) anything else here would be misleading.
+  // undefined, null, object, array -> nothing sendable. These values are
+  // forwarded to the Avo Inspector JS SDK, which accepts strings only and
+  // omits anything else; numbers and booleans are stringified above because
+  // GTM tag parameters are untyped, but the remaining types have no
+  // meaningful string form, so forwarding them would be misleading.
   return '';
 }
 
-// Normalizes rawValue via toHintString and sets body[key] only when the
+// Normalizes rawValue via toHintString and sets hints[key] only when the
 // result is non-empty; omits the key entirely otherwise (never null/'').
-// Centralizes the "trim/stringify, then omit-if-empty" rule shared by both
-// hint fields so a future third field is one call, not one more block.
-function setHintField(body, key, rawValue) {
+// Centralizes the "trim/stringify, then omit-if-empty" rule shared by all
+// hint fields so adding a field is one call, not one more block.
+function setHintField(hints, key, rawValue) {
   var value = toHintString(rawValue);
   if (value !== '') {
-    body[key] = value;
+    hints[key] = value;
   }
 }
+
+// Signature of this tag instance's hint configuration. templateStorage is
+// shared by every instance of this template on the page, so the instance that
+// loads the SDK stores its own signature there; instances whose injectScript
+// callback arrives later compare it with theirs to find out whether the
+// dataLayer replay already covered them (see onsuccess). Built from the
+// normalized values so '  web ' and 'web' count as the same configuration.
+const hintSignature = toHintString(data.outputReference) + '|' +
+  toHintString(data.originHint) + '|' +
+  toHintString(data.appVersion);
 
 const onfailure = () => {
   log(LOG_PREFIX + 'Error: failed to load Avo Inspector');
@@ -222,9 +234,9 @@ const onfailure = () => {
 };
 
 const onsuccess = () => {
-   const alreadyInit = templateStorage.getItem(INSTANCE_STORAGE_KEY);
-   if (!alreadyInit) {
-    templateStorage.setItem(INSTANCE_STORAGE_KEY, true);
+   const initializedBy = templateStorage.getItem(INSTANCE_STORAGE_KEY);
+   if (!initializedBy) {
+    templateStorage.setItem(INSTANCE_STORAGE_KEY, hintSignature);
     setInWindow('inspector.__API_KEY__', data.inspectorApiKey, true);
     setInWindow('inspector.__ENV__', isPreview ? 'dev' : 'prod', true);
     setInWindow('inspector.__VERSION__', "1.0.0", true);
@@ -237,6 +249,9 @@ const onsuccess = () => {
     var _inspector = copyFromWindow("inspector");
 
     _inspector.load();
+    // Replay the dataLayer events that fired before the SDK finished loading,
+    // with this (initializing) instance's hints. This instance's own
+    // triggering event is part of that replay, so it is never observed twice.
     var dataLayerArray = copyFromWindow('dataLayer');
     for (var i = 0; i < dataLayerArray.length; i++) {
         var dataLayerEvent = dataLayerArray[i];
@@ -244,6 +259,19 @@ const onsuccess = () => {
             inspectEventFromDataLayer(dataLayerEvent.event, dataLayerEvent["gtm.uniqueEventId"]);
         }
     }
+  } else if (initializedBy !== hintSignature) {
+    // Another tag instance loaded the SDK first and replayed the dataLayer
+    // with ITS hints while this instance was still waiting for the script, so
+    // this instance's triggering event has not been observed with THIS
+    // instance's hints yet. Observe it now, exactly as the already-initialized
+    // branch at the bottom of this file does. Deliberately no replay and no
+    // setItem: the other instance owns the stored signature, and replaying the
+    // whole dataLayer here would report events this instance never triggered.
+    // An instance whose signature matches falls through and does nothing: the
+    // replay already covered it with identical hints.
+    var ownEventName = copyFromDataLayer("event");
+    var ownEventId = copyFromDataLayer("gtm.uniqueEventId");
+    inspectEventFromDataLayer(ownEventName, ownEventId);
   }
 
   data.gtmOnSuccess();
@@ -855,26 +883,10 @@ scenarios:
 - name: Backward compatibility - neither hint param set leaves the call unchanged
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -893,26 +905,10 @@ scenarios:
 - name: outputReference set, originHint unset omits originHint key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -927,64 +923,13 @@ scenarios:
     assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
     assertThat(call.args[2].hasOwnProperty('originHint')).isEqualTo(false);
 
-- name: outputReference undefined (old tag instance) omits the key
-  code: |-
-    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
-    mock('copyFromWindow', function(key) {
-      if (key === 'dataLayer') {
-        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
-      }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
-    });
-
-    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
-
-    runCode(mockData);
-
-    assertApi('gtmOnSuccess').wasCalled();
-    assertThat(capturedCalls.length).isEqualTo(1);
-    const call = capturedCalls[0];
-    assertThat(call.length).isEqualTo(3);
-    assertApi('callInWindow').wasCalledWith('inspector.trackSchemaFromEvent', 'test_event', { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' });
-
 - name: outputReference empty string omits the key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1000,26 +945,10 @@ scenarios:
 - name: outputReference whitespace-only omits the key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1035,26 +964,10 @@ scenarios:
 - name: outputReference null omits the key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1070,26 +983,10 @@ scenarios:
 - name: outputReference as an empty object omits the key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1105,26 +1002,10 @@ scenarios:
 - name: outputReference as an empty array omits the key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1140,26 +1021,10 @@ scenarios:
 - name: originHint as a plain string is trimmed and sent
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1177,26 +1042,10 @@ scenarios:
 - name: originHint as a number is stringified
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1213,26 +1062,10 @@ scenarios:
 - name: originHint as a boolean is stringified
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1246,64 +1079,13 @@ scenarios:
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].originHint).isEqualTo('true');
 
-- name: originHint undefined omits the key
-  code: |-
-    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
-    mock('copyFromWindow', function(key) {
-      if (key === 'dataLayer') {
-        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
-      }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
-    });
-
-    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
-
-    runCode(mockData);
-
-    assertApi('gtmOnSuccess').wasCalled();
-    assertThat(capturedCalls.length).isEqualTo(1);
-    const call = capturedCalls[0];
-    assertThat(call.length).isEqualTo(3);
-    assertApi('callInWindow').wasCalledWith('inspector.trackSchemaFromEvent', 'test_event', { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' });
-
 - name: Both outputReference and originHint set are both present
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1322,26 +1104,10 @@ scenarios:
 - name: Only originHint set leaves outputReference absent
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1359,26 +1125,10 @@ scenarios:
 - name: Neither outputReference nor originHint ever appears as a propertyName in eventProperties
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1402,26 +1152,10 @@ scenarios:
 - name: Event data property literally named outputReference coexists with the tag-config outputReference
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, outputReference: 42 }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1440,26 +1174,10 @@ scenarios:
   code: |-
     const JSON = require('JSON');
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockDataA = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1482,26 +1200,10 @@ scenarios:
   code: |-
     const JSON = require('JSON');
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockDataA = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1525,26 +1227,10 @@ scenarios:
 - name: originHint and appVersion set are both present
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1564,26 +1250,10 @@ scenarios:
 - name: appVersion set without originHint is sent alone
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1602,26 +1272,10 @@ scenarios:
 - name: appVersion whitespace-only omits the key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
-    mock('getContainerVersion', function() { return { previewMode: false }; });
-    mock('copyFromDataLayer', function(key) {
-      if (key === 'event') return 'test_event';
-      if (key === 'gtm.uniqueEventId') return 1;
-    });
     mock('copyFromWindow', function(key) {
       if (key === 'dataLayer') {
         return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
       }
-    });
-
-    var capturedCalls = [];
-    mock('callInWindow', function(path, eventName, eventProperties, hints) {
-      if (path !== 'inspector.trackSchemaFromEvent') { return; }
-      var hasHints = hints !== undefined;
-      capturedCalls.push({
-        path: path,
-        args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
-        length: hasHints ? 4 : 3
-      });
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
@@ -1636,6 +1290,159 @@ scenarios:
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].originHint).isEqualTo('ios');
     assertThat(call.args[2].hasOwnProperty('appVersion')).isEqualTo(false);
+
+- name: First load - the initializing instance replays the dataLayer with its own hints
+  code: |-
+    var storedSignature = null;
+    mockObject('templateStorage', {
+      getItem: function(key) { return storedSignature; },
+      setItem: function(key, value) { storedSignature = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'web';
+    mockData.appVersion = '1.2.3';
+
+    runCode(mockData);
+
+    assertApi('injectScript').wasCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(storedSignature).isEqualTo('meta-x7k2q|web|1.2.3');
+    assertThat(capturedCalls.length).isEqualTo(2);
+    assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[0].length).isEqualTo(4);
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[0].args[2].originHint).isEqualTo('web');
+    assertThat(capturedCalls[0].args[2].appVersion).isEqualTo('1.2.3');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('other_event');
+    assertThat(capturedCalls[1].length).isEqualTo(4);
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[1].args[2].originHint).isEqualTo('web');
+    assertThat(capturedCalls[1].args[2].appVersion).isEqualTo('1.2.3');
+
+- name: Later instance with a different hint signature observes its own triggering event
+  code: |-
+    var getItemCalls = 0;
+    mockObject('templateStorage', {
+      getItem: function(key) {
+        getItemCalls = getItemCalls + 1;
+        // Read 1 is the top-level check, before any instance has initialized,
+        // so this instance injects the script too. By the time the script
+        // calls back, another tag instance has stored ITS hint signature.
+        return getItemCalls === 1 ? null : 'other-output|other-origin|9.9.9';
+      },
+      setItem: function(key, value) { fail('a later instance must not overwrite the stored signature'); }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'web';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    // The SDK is already loaded and configured, so this instance must not
+    // re-initialize it.
+    assertApi('setInWindow').wasNotCalled();
+    // Exactly this instance's own triggering event, with its own hints, and no
+    // second replay of the dataLayer: other_event stays untouched.
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.args[0]).isEqualTo('test_event');
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(call.args[2].originHint).isEqualTo('web');
+
+- name: Later instance with the same hint signature does not observe anything again
+  code: |-
+    var getItemCalls = 0;
+    mockObject('templateStorage', {
+      getItem: function(key) {
+        getItemCalls = getItemCalls + 1;
+        // The instance that initialized stored a signature that normalizes to
+        // the same value as this instance's parameters.
+        return getItemCalls === 1 ? null : 'meta-x7k2q|web|';
+      },
+      setItem: function(key, value) { fail('a later instance must not overwrite the stored signature'); }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = '  meta-x7k2q  ';
+    mockData.originHint = 'web';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('setInWindow').wasNotCalled();
+    // The dataLayer replay already covered every event with identical hints,
+    // so observing anything here would double-report.
+    assertThat(capturedCalls.length).isEqualTo(0);
+
+setup: |-
+  // Runs before every scenario. Holds only what no scenario varies: the
+  // container is not in preview mode, the tag is triggered by test_event with
+  // gtm.uniqueEventId 1, and every inspector.trackSchemaFromEvent call is
+  // captured in capturedCalls together with its argument count, so a scenario
+  // can tell the two-argument (no hints) call from the three-argument one.
+  // templateStorage and copyFromWindow stay in the scenarios: those are the
+  // mocks the scenarios differ on.
+  mock('getContainerVersion', function() { return { previewMode: false }; });
+  mock('copyFromDataLayer', function(key) {
+    if (key === 'event') return 'test_event';
+    if (key === 'gtm.uniqueEventId') return 1;
+  });
+
+  var capturedCalls = [];
+  mock('callInWindow', function(path, eventName, eventProperties, hints) {
+    if (path !== 'inspector.trackSchemaFromEvent') { return; }
+    var hasHints = hints !== undefined;
+    capturedCalls.push({
+      path: path,
+      args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+      length: hasHints ? 4 : 3
+    });
+  });
+
 
 ___NOTES___
 

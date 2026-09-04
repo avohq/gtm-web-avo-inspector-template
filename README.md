@@ -2,13 +2,13 @@
 
 Use this template to let Avo Inspector monitor the health of your tracking and help you improve it.
 
-Learn more about Avo Inspector [here](https://www.avo.app/docs/data-design/start-using-inspector)
+Learn more in the [Avo Inspector documentation](https://www.avo.app/docs/data-design/start-using-inspector)
 
 > Note: No user data is sent to Avo.
 
 ## Gateways
 
-Avo Inspector is moving to a multi-gate model: one Inspector API key per *gateway* (e.g. this web GTM container), rather than one Inspector source per destination. This tag has two optional parameters, **Output reference** and **Origin hint**, that let a gateway-scoped key tell observations apart.
+Avo Inspector is moving to a multi-gate model: one Inspector API key per *gateway* (e.g. this web GTM container), rather than one Inspector source per destination. This tag has three optional parameters, **Output reference**, **Origin hint** and **App version**, that let a gateway-scoped key tell observations apart.
 
 This tag fires on `dataLayer` events in the web container. An "output" here is a client-side destination tag (e.g. a Meta Pixel or GA4 event tag) that fires on the same event.
 
@@ -19,13 +19,13 @@ This tag fires on `dataLayer` events in the web container. An "output" here is a
 
 To observe an output's checkpoint, fire this tag on the **same trigger** as that destination tag, with the output's reference set in **Output reference**.
 
-Both fields are optional and independent: **Output reference** alone determines the checkpoint; **Origin hint** can be set or omitted at either checkpoint.
+All three parameters are optional: **Output reference** alone determines the checkpoint, and **Origin hint** / **App version** can be set or omitted at either checkpoint.
 
 Hints are passed to the Avo Inspector JS SDK as top-level fields on each observation — never inside the event schema.
 
-On first load, this tag replays existing `dataLayer` events using the **initializing** tag instance's **Output reference** / **Origin hint** — the same tag instance whose script sets up Avo Inspector on the page, matching how filters are replayed today.
+On first load, the tag instance that ends up loading the SDK replays the events already in the `dataLayer` using **its own** **Output reference** / **Origin hint** / **App version**, matching how filters are replayed today. Every other tag instance that fired before the SDK finished loading observes **its own triggering event** with **its own** parameters instead of replaying the `dataLayer` again — so a second instance (for example an output-level tag firing on the same events) is neither skipped nor double-reported.
 
-**Output reference** and **Origin hint** require Avo Inspector JS SDK 3.3.0 or later, which this tag loads from `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`. If events from a configured tag instance do not show these fields, confirm the page is loading the current SDK build — a stale cached bundle ignores the extra argument silently.
+**Output reference**, **Origin hint** and **App version** require Avo Inspector JS SDK 3.3.0 or later, which this tag loads from `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`. That URL must serve the 3.3.0 build for any of the three to reach Avo. If events from a configured tag instance do not show these fields, confirm the page is loading the current SDK build — a stale cached bundle ignores the extra argument silently.
 
 ## Origin hint
 
@@ -45,11 +45,20 @@ How it combines with **Origin hint** and the Inspector JS SDK's own configured v
 | Origin hint | App version | Version reported for the event |
 | --- | --- | --- |
 | set | set | the App version value |
-| set | empty | none |
+| set | empty | literal JSON `null` |
 | empty | set | the App version value (overrides the SDK's configured version) |
 | empty | empty | the SDK's configured version |
 
-This template's own configured version is a fixed placeholder, so with **Origin hint** set and **App version** left empty, the event carries no app version at all.
+**Origin hint** makes an event source-scoped: it did not come from this container, so the SDK's own configured version — a fixed `1.0.0` placeholder in this template — never applies to it. That is why the second row sends `"appVersion": null` rather than falling back to anything, and why it is `null` on the wire rather than an omitted key or an empty string.
+
+## Backend support for these parameters
+
+**These three parameters are not honored by the Avo Inspector backend yet.** The tag sends the correct payload today and will start working unchanged once the backend catches up — no tag reconfiguration will be needed then — but until that ships:
+
+- The Inspector JS SDK posts to `/inspector/v1/track`, whose parser discards `outputReference` and `originHint`. Observations are recorded at the gateway (container) level regardless of what you configure here.
+- That same parser **drops any event whose `appVersion` is `null`**. The request still returns HTTP 200, so nothing surfaces as an error — the event simply never appears in Avo.
+
+The practical consequence: **set App version whenever Origin hint is set.** An **Origin hint** with an empty **App version** is exactly the `appVersion: null` case above, so those events are silently discarded until the backend is updated. Avo Inspector JS SDK 3.3.0 logs a console warning whenever it sends a `null` app version in the `dev` environment, which is the environment this tag uses in GTM Preview mode — so a misconfigured tag instance shows up in the Preview console before it ships.
 
 ## How to publish an update
 
