@@ -224,9 +224,21 @@ function setHintField(hints, key, rawValue) {
 // callback arrives later compare it with theirs to find out whether the
 // dataLayer replay already covered them (see onsuccess). Built from the
 // normalized values so '  web ' and 'web' count as the same configuration.
-const hintSignature = toHintString(data.outputReference) + '|' +
-  toHintString(data.originHint) + '|' +
-  toHintString(data.appVersion);
+//
+// JSON.stringify rather than a delimiter join: the three values come from
+// free-form GTM parameters, so any separator character can also occur inside a
+// value and let two different configurations produce one signature. With a
+// join on '|', outputReference 'a' + originHint 'b|c' and outputReference 'a'
+// + originHint 'b' + appVersion 'c' both flatten to 'a|b|c|'. A collision is
+// silent data loss: the second instance would read a stored signature equal to
+// its own, conclude the replay already covered it, and drop its triggering
+// event. JSON quotes and escapes each element, so the encoding stays
+// one-to-one whatever the values contain.
+const hintSignature = JSON.stringify([
+  toHintString(data.outputReference),
+  toHintString(data.originHint),
+  toHintString(data.appVersion)
+]);
 
 const onfailure = () => {
   log(LOG_PREFIX + 'Error: failed to load Avo Inspector');
@@ -1321,7 +1333,7 @@ scenarios:
 
     assertApi('injectScript').wasCalled();
     assertApi('gtmOnSuccess').wasCalled();
-    assertThat(storedSignature).isEqualTo('meta-x7k2q|web|1.2.3');
+    assertThat(storedSignature).isEqualTo('["meta-x7k2q","web","1.2.3"]');
     assertThat(capturedCalls.length).isEqualTo(2);
     assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
     assertThat(capturedCalls[0].length).isEqualTo(4);
@@ -1343,7 +1355,7 @@ scenarios:
         // Read 1 is the top-level check, before any instance has initialized,
         // so this instance injects the script too. By the time the script
         // calls back, another tag instance has stored ITS hint signature.
-        return getItemCalls === 1 ? null : 'other-output|other-origin|9.9.9';
+        return getItemCalls === 1 ? null : '["other-output","other-origin","9.9.9"]';
       },
       setItem: function(key, value) { fail('a later instance must not overwrite the stored signature'); }
     });
@@ -1388,7 +1400,7 @@ scenarios:
         getItemCalls = getItemCalls + 1;
         // The instance that initialized stored a signature that normalizes to
         // the same value as this instance's parameters.
-        return getItemCalls === 1 ? null : 'meta-x7k2q|web|';
+        return getItemCalls === 1 ? null : '["meta-x7k2q","web",""]';
       },
       setItem: function(key, value) { fail('a later instance must not overwrite the stored signature'); }
     });
@@ -1472,7 +1484,7 @@ scenarios:
     // First callback initializes and replays the whole dataLayer with ITS
     // hints. Second callback finds a signature that is not its own, so it
     // observes only its own triggering event and does not replay again.
-    assertThat(store['Avo Inspector Init']).isEqualTo('meta-x7k2q|web|');
+    assertThat(store['Avo Inspector Init']).isEqualTo('["meta-x7k2q","web",""]');
     assertThat(capturedCalls.length).isEqualTo(3);
 
     assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
@@ -1486,6 +1498,59 @@ scenarios:
     assertThat(capturedCalls[2].args[0]).isEqualTo('test_event');
     assertThat(capturedCalls[2].args[2].outputReference).isEqualTo('ga4-9f3');
     assertThat(capturedCalls[2].args[2].originHint).isEqualTo('web');
+
+- name: A separator character inside a hint value does not collide two instances
+  code: |-
+    // Regression test for the signature encoding. These two configurations are
+    // genuinely different but flatten to the same string under a join on '|':
+    // 'meta|x' + 'web' + '' and 'meta' + 'x|web' + '' both give 'meta|x|web|'.
+    // With that encoding the second instance would read a stored signature
+    // equal to its own, conclude the replay had already covered it, and drop
+    // its triggering event. JSON quotes each element, so the two stay distinct.
+    var store = {};
+    mockObject('templateStorage', {
+      getItem: function(key) { return store[key]; },
+      setItem: function(key, value) { store[key] = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+
+    var pendingCallbacks = [];
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) {
+      pendingCallbacks.push(onSuccess);
+    });
+
+    const firstInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    firstInstance.outputReference = 'meta|x';
+    firstInstance.originHint = 'web';
+
+    const secondInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    secondInstance.outputReference = 'meta';
+    secondInstance.originHint = 'x|web';
+
+    runCode(firstInstance);
+    runCode(secondInstance);
+    pendingCallbacks[0]();
+    pendingCallbacks[1]();
+
+    assertThat(store['Avo Inspector Init']).isEqualTo('["meta|x","web",""]');
+
+    // One replayed event from the initializer, plus the second instance's own
+    // triggering event. Under a '|' join this would be 1: the second instance
+    // would see its own signature and stay silent.
+    assertThat(capturedCalls.length).isEqualTo(2);
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta|x');
+    assertThat(capturedCalls[0].args[2].originHint).isEqualTo('web');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta');
+    assertThat(capturedCalls[1].args[2].originHint).isEqualTo('x|web');
 
 setup: |-
   // Runs before every scenario. Holds only what no scenario varies: the
