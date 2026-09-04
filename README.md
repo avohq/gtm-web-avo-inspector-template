@@ -2,7 +2,7 @@
 
 Use this template to let Avo Inspector monitor the health of your tracking and help you improve it.
 
-Learn more in the [Avo Inspector documentation](https://www.avo.app/docs/data-design/start-using-inspector)
+Learn more in the [Avo Inspector documentation](https://www.avo.app/docs/inspector/start-using-inspector)
 
 > Note: No user data is sent to Avo.
 
@@ -25,7 +25,15 @@ Hints are passed to the Avo Inspector JS SDK as top-level fields on each observa
 
 On first load, the tag instance that ends up loading the SDK replays the events already in the `dataLayer` using **its own** **Output reference** / **Origin hint** / **App version**, matching how filters are replayed today. Every other tag instance that fired before the SDK finished loading observes **its own triggering event** with **its own** parameters instead of replaying the `dataLayer` again — so a second instance (for example an output-level tag firing on the same events) is neither skipped nor double-reported.
 
-**Output reference**, **Origin hint** and **App version** require Avo Inspector JS SDK 3.3.0 or later, which this tag loads from `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`. That URL must serve the 3.3.0 build for any of the three to reach Avo. If events from a configured tag instance do not show these fields, confirm the page is loading the current SDK build — a stale cached bundle ignores the extra argument silently.
+**Output reference**, **Origin hint** and **App version** require Avo Inspector JS SDK 3.3.0 or later. The tag passes all three in the third argument of `inspector.trackSchemaFromEvent`, a parameter that 3.3.0 adds; earlier builds take two arguments and ignore a third silently.
+
+The tag injects `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`, which is only a queueing stub — it forwards every argument it is given, so the third one survives the queue regardless of build. The build that consumes the queue is `https://cdn.avo.app/inspector/inspector-v2.min.js`, and that is the one which must be 3.3.0 or later. To check which is deployed:
+
+```
+curl -s https://cdn.avo.app/inspector/inspector-v2.min.js | grep -c outputReference
+```
+
+`0` means the fields are not supported yet and the tag's parameters will not reach Avo no matter how they are configured. **Publish this template only after that build is live**, otherwise the three parameters appear in the tag UI while doing nothing.
 
 ## Origin hint
 
