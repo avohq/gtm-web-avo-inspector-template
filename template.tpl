@@ -127,7 +127,7 @@ ___TEMPLATE_PARAMETERS___
     "displayName": "App version (optional)",
     "simpleValueType": true,
     "canBeEmptyString": true,
-    "help": "Version of the source app that produced the event, e.g. {{DLV - app_version}}. With Origin hint set, this is the version reported for the event (null when left empty); without Origin hint it overrides the default version only when provided. Set this whenever Origin hint is set: until the Inspector backend is updated, events that arrive with a null app version are discarded."
+    "help": "Version of the source app that produced the event, e.g. {{DLV - app_version}}. With Origin hint set, this is the version reported for the event (a literal null when left empty, which Avo records as an unversioned event); without Origin hint it overrides the default version only when provided."
   },
   {
     "type": "TEXT",
@@ -262,6 +262,14 @@ const onsuccess = () => {
     setInWindow('inspector.__ENV__', isPreview ? 'dev' : 'prod', true);
     setInWindow('inspector.__VERSION__', "1.0.0", true);
     setInWindow('inspector.__APP_NAME__', data.appName, true);
+    // Identifies this sender to the Avo Inspector API. The SDK reads
+    // inspector.__CLIENT__ at init and sends it as the X-Avo-Client request
+    // header, defaulting to 'web' when it is unset. Setting it here is what
+    // keeps observations that originate in a web GTM container tellable apart
+    // from a page that embeds the SDK directly, without decoding a body.
+    // Written in this branch only: it belongs to the one instance that
+    // configures and loads the SDK, exactly like the four writes above.
+    setInWindow('inspector.__CLIENT__', 'gtm-web', true);
 
     if (data.publicEncryptionKey) {
       setInWindow('inspector.__PUBLIC_ENCRYPTION_KEY__', data.publicEncryptionKey, true);
@@ -790,6 +798,45 @@ ___WEB_PERMISSIONS___
                   {
                     "type": 1,
                     "string": "inspector.__PUBLIC_ENCRYPTION_KEY__"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "inspector.__CLIENT__"
                   },
                   {
                     "type": 8,
@@ -1350,6 +1397,46 @@ scenarios:
     assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta-x7k2q');
     assertThat(capturedCalls[1].args[2].originHint).isEqualTo('web');
     assertThat(capturedCalls[1].args[2].appVersion).isEqualTo('1.2.3');
+
+- name: First load - the initializing instance declares itself as the gtm-web client
+  code: |-
+    var storedSignature = null;
+    var clientWritten = false;
+    var clientWrittenBeforeLoad = false;
+    mockObject('templateStorage', {
+      getItem: function(key) { return storedSignature; },
+      setItem: function(key, value) { storedSignature = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+      if (key === 'inspector') {
+        return { load: function() { clientWrittenBeforeLoad = clientWritten; } };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) {
+      if (key === 'inspector.__CLIENT__' && value === 'gtm-web' && overrideExisting === true) {
+        clientWritten = true;
+      }
+      return true;
+    });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    // The SDK reads inspector.__CLIENT__ at init and sends it as the
+    // X-Avo-Client request header, defaulting to 'web' when it is unset. This
+    // write is the only thing marking the traffic as web-GTM traffic, and it
+    // is not tied to the hint parameters, so it happens even with none set.
+    assertApi('setInWindow').wasCalledWith('inspector.__CLIENT__', 'gtm-web', true);
+    // Written before inspector.load(): the SDK reads the window keys when it
+    // initializes, so a write afterwards would arrive too late and the header
+    // would fall back to the 'web' default.
+    assertThat(clientWrittenBeforeLoad).isEqualTo(true);
 
 - name: Later instance with a different hint signature observes its own triggering event
   code: |-

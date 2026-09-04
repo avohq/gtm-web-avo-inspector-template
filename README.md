@@ -27,15 +27,16 @@ On first load, the tag instance that ends up loading the SDK replays the events 
 
 > "Same configuration" here means the same **Output reference**, **Origin hint** and **App version**. The event and property filters are deliberately not part of that comparison, so two instances that differ *only* in their include/exclude lists count as identical and the replay applies the initializing instance's filters to both. On first load only, an event that one instance's filters would have kept can therefore be dropped by the other's. Give such instances distinct hint parameters if that matters to you.
 
-**Output reference**, **Origin hint** and **App version** require Avo Inspector JS SDK 3.3.0 or later. The tag passes all three in the third argument of `inspector.trackSchemaFromEvent`, a parameter that 3.3.0 adds; earlier builds take two arguments and ignore a third silently.
+**Output reference**, **Origin hint** and **App version** require Avo Inspector JS SDK 3.3.0 or later. The tag passes all three in the third argument of `inspector.trackSchemaFromEvent`, a parameter that 3.3.0 adds; earlier builds take two arguments and ignore a third silently. They also require the SDK build that posts to `/inspector/v2/track` (see [How these reach Avo](#how-these-reach-avo)) — an older build reaches an endpoint that discards the two gateway fields.
 
-The tag injects `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`, which is only a queueing stub — it forwards every argument it is given, so the third one survives the queue regardless of build. The build that consumes the queue is `https://cdn.avo.app/inspector/inspector-v2.min.js`, and that is the one which must be 3.3.0 or later. To check which is deployed:
+The tag injects `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`, which is only a queueing stub — it forwards every argument it is given, so the third one survives the queue regardless of build. The build that consumes the queue is `https://cdn.avo.app/inspector/inspector-v2.min.js`, and that is the one which must be current. To check what is deployed:
 
 ```sh
 curl -s https://cdn.avo.app/inspector/inspector-v2.min.js | grep -c outputReference
+curl -s https://cdn.avo.app/inspector/inspector-v2.min.js | grep -c 'inspector/v2/track'
 ```
 
-`0` means the fields are not supported yet and the tag's parameters will not reach Avo no matter how they are configured. **Publish this template only after that build is live**, otherwise the three parameters appear in the tag UI while doing nothing.
+Either command printing `0` means the deployed build is too old: the tag's parameters will not reach Avo no matter how they are configured. **Publish this template to the gallery only after a build satisfying both checks is live**, otherwise the three parameters appear in the tag UI while doing nothing.
 
 ## Origin hint
 
@@ -61,16 +62,25 @@ How it combines with **Origin hint** and the Inspector JS SDK's own configured v
 
 **Origin hint** makes an event source-scoped: it did not come from this container, so the SDK's own configured version — a fixed `1.0.0` placeholder in this template — never applies to it. That is why the second row sends `"appVersion": null` rather than falling back to anything, and why it is `null` on the wire rather than an omitted key or an empty string.
 
-## Backend support for these parameters
+## How these reach Avo
 
-**Output reference and Origin hint are not honored by the Avo Inspector backend yet, and a `null` App version is dropped.** A non-null **App version** works end to end today: the fourth row of the table above, an empty **Origin hint** with **App version** set, already overrides the configured version in Avo. The tag sends the correct payload for all three, and the other cases start working unchanged once the backend catches up, with no tag reconfiguration needed. Until that ships:
+The Avo Inspector JS SDK posts observations to `POST https://api.avo.app/inspector/v2/track`, the unified Inspector ingestion endpoint that every Avo Inspector sender uses. Each sender identifies itself with an `X-Avo-Client` request header so its traffic can be attributed without decoding a body. **This tag sets that value to `gtm-web`**: on first load it writes `inspector.__CLIENT__` on the window, alongside the API key, environment, version and app name, before the SDK initializes. A page that embeds the SDK directly leaves the key unset and the SDK defaults to `web`, so web GTM traffic and hand-rolled browser traffic stay tellable apart.
 
-- The Inspector JS SDK posts to `/inspector/v1/track`, whose parser discards `outputReference` and `originHint`. Observations are recorded at the gateway (container) level regardless of what you configure here.
-- That same parser **drops any event whose `appVersion` is `null`**. The request still returns HTTP 200, so nothing surfaces as an error — the event simply never appears in Avo.
+The move to `/inspector/v2/track` and the `X-Avo-Client` header are part of the Inspector JS SDK, not this template — the template only declares which client it is. The CDN check in [Gateways](#gateways) is how you tell whether the deployed build has them; a build older than that still posts to `/inspector/v1/track`, which discards both gateway fields and drops events with a `null` app version — which is exactly why that build has to be live before this template is published.
 
-The practical consequence: **set App version whenever Origin hint is set.** An **Origin hint** with an empty **App version** is exactly the `appVersion: null` case above, so those events are silently discarded until the backend is updated.
+What `/inspector/v2/track` does with the three parameters:
 
-Avo Inspector JS SDK 3.3.0 logs a console warning the first time it sends a `null` app version, once per page load, when the environment is `dev` — which is what this tag uses in GTM Preview mode. Because it fires once per page, a second misconfigured tag instance produces no additional line, and in production the SDK's logging is off, so nothing surfaces there at all. To check a specific instance, open the browser network tab with the container in GTM Preview mode and confirm the `POST https://api.avo.app/inspector/v1/track` body carries a non-null `appVersion`.
+- **Output reference** and **Origin hint** are decoded and stored, so an observation is recorded at the checkpoint you configure rather than always at the gateway (container) level.
+- A literal `null` **App version** — the second row of the table above, **Origin hint** set with **App version** empty — is accepted. Avo records the event as unversioned instead of discarding it, so that combination is a supported configuration and does not need an **App version** added to work.
+- v2 does not sample: it pins the sampling rate it returns to `1.0`, and stored counts are exact rather than extrapolated from a sampled subset. The SDK still applies whatever rate the response hands it — that rate is now always `1.0`.
+
+To check what a specific tag instance sends, open the browser network tab with the container in GTM Preview mode and inspect the `POST https://api.avo.app/inspector/v2/track` request: the `X-Avo-Client` header should read `gtm-web`, and the body should carry the `outputReference` / `originHint` / `appVersion` you configured as top-level fields next to `eventProperties`.
+
+### Browser senders are blocked until Avo's CORS allowlist is updated
+
+`/inspector/v2/track` requires the `api-key`, `env` and `X-Avo-Client` request headers. Custom headers make a CORS preflight unavoidable, and the Inspector write API's preflight currently answers with `Access-Control-Allow-Headers: content-type, content-encoding` — none of the three. A browser therefore refuses to send the request and nothing reaches Avo.
+
+**Until that allowlist is updated on Avo's side, this tag cannot work end to end in production.** The fix is a separate, already-planned change to the Inspector write API; there is deliberately no fallback to the old endpoint and no feature flag in this template, because Avo is standardizing on one endpoint. This is the second precondition for publishing, next to the CDN build check above.
 
 ## How to publish an update
 
