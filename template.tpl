@@ -1720,6 +1720,15 @@ setup: |-
   // can tell the two-argument (no hints) call from the three-argument one.
   // templateStorage and copyFromWindow stay in the scenarios: those are the
   // mocks the scenarios differ on.
+
+  // Object is a Core API, not a global: only assertApi, assertThat, fail,
+  // mock, mockObject and runCode are usable without a require(). The eight
+  // scenarios that assert a hint key is ABSENT do it with
+  // Object.keys(x).indexOf('key') === -1, so they need the API in scope, and
+  // Setup is the one place every scenario shares (that is how capturedCalls
+  // below reaches them). No scenario declares Object itself.
+  const Object = require('Object');
+
   mock('getContainerVersion', function() { return { previewMode: false }; });
   mock('copyFromDataLayer', function(key) {
     if (key === 'event') return 'test_event';
