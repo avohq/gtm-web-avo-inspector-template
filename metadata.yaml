@@ -16,6 +16,19 @@ homepage: "https://www.avo.app"
 documentation: "https://www.avo.app/docs/inspector/connect-inspector-to-gtm#inspector-client-side-gtm-integration-with-a-template"
 versions:
   # Latest version
+  - sha: "<PLACEHOLDER: fill in with the commit sha at publish time>"
+    changeNotes: |
+      Add optional Output reference, Origin hint and App version parameters.
+      Output reference lets a tag instance observe a specific output's checkpoint instead of the gateway (container) level; Origin hint attaches a low-cardinality source label to each observation; App version sets the version reported for the event.
+      All three are sent to the Avo Inspector JS SDK as top-level fields alongside the event schema, for customers adopting one gateway-scoped Inspector API key per web GTM container.
+      Origin hint makes an event source-scoped, so the SDK's configured version no longer applies to it: with Origin hint set and App version empty the event is sent with a literal null app version.
+      Declare this container as the gtm-web Inspector client: the tag now writes inspector.__CLIENT__ on the window, so the Avo Inspector JS SDK sends X-Avo-Client: gtm-web with every observation and web GTM traffic stays tellable apart from a page that embeds the SDK directly.
+      The SDK posts to the unified https://api.avo.app/inspector/v2/track endpoint, which decodes Output reference and Origin hint and accepts a null app version (recorded as unversioned), so every combination of Origin hint and App version works end to end.
+      This adds one key, inspector.__CLIENT__, to the template's access globals permission.
+      Requires an Avo Inspector JS SDK CDN build that posts to /inspector/v2/track, and browsers cannot send the endpoint's required headers until Avo's Inspector write API CORS allowlist is updated. Publish this version only once both are live.
+      On first load, the tag instance that loads the SDK replays the existing dataLayer with its own parameters. An instance waiting on the same script with the same Output reference, Origin hint and App version is already covered by that replay and stays silent; every instance configured differently observes its own triggering event with its own parameters instead of being skipped. The event and property filters are not part of that comparison.
+      Backward compatible: an existing tag instance leaves the three parameters unset and its event body is unchanged; the only difference is the new X-Avo-Client request header the SDK sends.
+  # Older versions
   - sha: 7851164bb18332418ab8d82c13bb7390775ac677
     changeNotes: |
       Add optional public encryption key parameter.
@@ -23,7 +36,6 @@ versions:
       Without a key, property values are not sent (same behavior as before).
       Property value validation added in dev and staging environments.
       Stream ID support added.
-  # Older versions
   - sha: 10fee819aebe5fe45486f684c43b1c005a7d6b90
     changeNotes: Enhance event and property filters
   - sha: 7566a23d11c6f5dff51bc39ab26390ea65a5041a

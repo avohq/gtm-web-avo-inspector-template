@@ -20,7 +20,7 @@ ___INFO___
     "displayName": "Avo",
     "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAM9SURBVHgB7ZkxTBNRGMf/FQgJpmcCJiS2MSZG0jKa2E7oACYmRkPLKFAWQoyAI0IcHBB0UyhxlLYSJygxYRKNJi7t4OBATZw0bbrQ5doFF33flR5X4Oi7906vJPdLmutd7i7f/3vfe+/7vvNc7gn8wSnmDE45rgCncQU4jSvAaVwBTtMKm1G8Xvj8PgSDQf1aoVBAIV9Anh2P48peJ3r2uvTzYmsFXzuK4ME2AUPRCKKRQYRDIdN7SEA2m8XS8kqdmBuVSxgvXdXPyfj7HVvgQVpAOBzC88UF+H2+hvfSPf4ICY1gNZHEy+U4yuUyZJAS8HhuFmOx0bpr5Nnt7Q/YyX3Xr/lZSIVD1+pGh54bGOjH8EgMKEEYYQFrqUSdQZn90KCjGTQC5P2x2AgURdHO322m8en2C+ALhBBahcjzNeNVVcXMozncY548yXiCRmcpHsfdwShyuZx2TVG8uMlGQhTLAmjoa2FDxg+PxrCeTlt5hSbkDhNh9bnjsCSAhtwY8zOzc3WxbpWnC4v6SIhiScD01AN9tdlIb+I9m6wyqGoZ8wvPIIMlASHDpF1iS6Ad0LxZ39iEKNwCaL03et9sVxVB5l3cAoKBgP5fNnTshFtAryG3yRfyaBa4Bfh8F/T/+bx94SMLtwBjznKO7aLNArcAWvKaEW4BO4YNh1akZoFbQM6w4w70i+cudsMtgDYcyn0ISuS8rPKyC55awgxLO/FqMqUdKYN8ODUJOyDjh6KDEMWagERCHwVK6k4qH3mg+vkNqytksCSAVqLl+Ip+/molzor3AEQg49dSSanwISzXA69ZLVvL4ymU1pLJI2VlI8hoMl5UvJGWzq7zT2ARqnmpdULpRXt7O6739WltlN3SrtZCMYO8PjExXm0C+Kuep5D8OP8WF3+16fcV2yrYUn6AB4/MF5rpyUmtRjBSa51QoaPu7969LBEkbx+eM3QvFfW3vnUfbav4/0Nbhepb8viUodA5aJ2YP0deX02kqouCJrIbokj3hWg+0G+IjI42bmxtsOLlwHB5PP/iIx+JoAnu9VaTvnJZRSaTNTX6cGux0vIbn8/+BA8e9yulw7gCnMYV4DSuAKdxBTjNXy3yL/9pRPhYAAAAAElFTkSuQmCC"
   },
-  "description": "Sends your events metadata to Avo Inspector to monitor and improve the data quality. Find more at https://www.avo.app/docs/inspector/start-using-inspector.",
+  "description": "Sends your events metadata to Avo Inspector to monitor and improve the data quality. Optional Output reference, Origin hint and App version parameters let one gateway-scoped Inspector API key tell observations apart. Find more at https://www.avo.app/docs/inspector/start-using-inspector.",
   "containerContexts": [
     "WEB"
   ]
@@ -107,6 +107,30 @@ ___TEMPLATE_PARAMETERS___
   },
   {
     "type": "TEXT",
+    "name": "outputReference",
+    "displayName": "Output reference (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Paste the output's reference from Avo (e.g. meta-x7k2q) when this tag observes one destination's payload; leave empty to observe at the gateway level."
+  },
+  {
+    "type": "TEXT",
+    "name": "originHint",
+    "displayName": "Origin hint (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Value identifying which source the event came from, e.g. {{DLV - platform}}; use the same field in every Avo tag in the container and map each value to a source in Avo; low-cardinality values only, never a user identifier."
+  },
+  {
+    "type": "TEXT",
+    "name": "appVersion",
+    "displayName": "App version (optional)",
+    "simpleValueType": true,
+    "canBeEmptyString": true,
+    "help": "Version of the source app that produced the event, e.g. {{DLV - app_version}}. With Origin hint set, this is the version reported for the event (a literal null when left empty, which Avo records as an unversioned event); without Origin hint it overrides the default version only when provided."
+  },
+  {
+    "type": "TEXT",
     "name": "appName",
     "displayName": "Application name",
     "simpleValueType": true
@@ -164,19 +188,88 @@ const startsWithOneOfPrefixes = (str, prefixes) => {
   return false;
 };
 
+// --- Gateway coordinate fields (outputReference, originHint, appVersion) ---
+// Normalizes a tag-parameter value into a string safe to forward to the Avo
+// Inspector JS SDK, or '' when there is nothing sendable. Caller omits the key
+// entirely when the result is ''.
+function toHintString(value) {
+  var t = getType(value);
+  if (t === 'string') {
+    return value.trim();
+  } else if (t === 'number' || t === 'boolean') {
+    return '' + value;
+  }
+  // undefined, null, object, array -> nothing sendable. These values are
+  // forwarded to the Avo Inspector JS SDK, which accepts strings only and
+  // omits anything else; numbers and booleans are stringified above because
+  // GTM tag parameters are untyped, but the remaining types have no
+  // meaningful string form, so forwarding them would be misleading.
+  return '';
+}
+
+// Normalizes rawValue via toHintString and sets hints[key] only when the
+// result is non-empty; omits the key entirely otherwise (never null/'').
+// Centralizes the "trim/stringify, then omit-if-empty" rule shared by all
+// hint fields so adding a field is one call, not one more block.
+function setHintField(hints, key, rawValue) {
+  var value = toHintString(rawValue);
+  if (value !== '') {
+    hints[key] = value;
+  }
+}
+
+// Signature of this tag instance's hint configuration. templateStorage is
+// shared by every instance of this template on the page, so the instance that
+// loads the SDK stores its own signature there; instances whose injectScript
+// callback arrives later compare it with theirs to find out whether the
+// dataLayer replay already covered them (see onsuccess). Built from the
+// normalized values so '  web ' and 'web' count as the same configuration.
+//
+// JSON.stringify rather than a delimiter join: the three values come from
+// free-form GTM parameters, so any separator character can also occur inside a
+// value and let two different configurations produce one signature. With a
+// join on '|', outputReference 'a' + originHint 'b|c' and outputReference 'a'
+// + originHint 'b' + appVersion 'c' both flatten to 'a|b|c|'. A collision is
+// silent data loss: the second instance would read a stored signature equal to
+// its own, conclude the replay already covered it, and drop its triggering
+// event. JSON quotes and escapes each element, so the encoding stays
+// one-to-one whatever the values contain.
+const hintSignature = JSON.stringify([
+  toHintString(data.outputReference),
+  toHintString(data.originHint),
+  toHintString(data.appVersion)
+]);
+
+// The event that triggered THIS tag instance, read at tag-evaluation time.
+// copyFromDataLayer returns the data layer model's CURRENT values, and those
+// advance with every push. Reading them inside the injectScript success
+// callback would name whatever event happened to be current when the CDN
+// script finished downloading, which on a real page is usually a later event
+// than the one that fired this instance. Both consumers close over these.
+const triggeringEventName = copyFromDataLayer("event");
+const triggeringEventId = copyFromDataLayer("gtm.uniqueEventId");
+
 const onfailure = () => {
   log(LOG_PREFIX + 'Error: failed to load Avo Inspector');
   return data.gtmOnFailure();
 };
 
 const onsuccess = () => {
-   const alreadyInit = templateStorage.getItem(INSTANCE_STORAGE_KEY);
-   if (!alreadyInit) {
-    templateStorage.setItem(INSTANCE_STORAGE_KEY, true);
+   const initializedBy = templateStorage.getItem(INSTANCE_STORAGE_KEY);
+   if (!initializedBy) {
+    templateStorage.setItem(INSTANCE_STORAGE_KEY, hintSignature);
     setInWindow('inspector.__API_KEY__', data.inspectorApiKey, true);
     setInWindow('inspector.__ENV__', isPreview ? 'dev' : 'prod', true);
     setInWindow('inspector.__VERSION__', "1.0.0", true);
     setInWindow('inspector.__APP_NAME__', data.appName, true);
+    // Identifies this sender to the Avo Inspector API. The SDK reads
+    // inspector.__CLIENT__ at init and sends it as the X-Avo-Client request
+    // header, defaulting to 'web' when it is unset. Setting it here is what
+    // keeps observations that originate in a web GTM container tellable apart
+    // from a page that embeds the SDK directly, without decoding a body.
+    // Written in this branch only: it belongs to the one instance that
+    // configures and loads the SDK, exactly like the four writes above.
+    setInWindow('inspector.__CLIENT__', 'gtm-web', true);
 
     if (data.publicEncryptionKey) {
       setInWindow('inspector.__PUBLIC_ENCRYPTION_KEY__', data.publicEncryptionKey, true);
@@ -185,6 +278,9 @@ const onsuccess = () => {
     var _inspector = copyFromWindow("inspector");
 
     _inspector.load();
+    // Replay the dataLayer events that fired before the SDK finished loading,
+    // with this (initializing) instance's hints. This instance's own
+    // triggering event is part of that replay, so it is never observed twice.
     var dataLayerArray = copyFromWindow('dataLayer');
     for (var i = 0; i < dataLayerArray.length; i++) {
         var dataLayerEvent = dataLayerArray[i];
@@ -192,6 +288,17 @@ const onsuccess = () => {
             inspectEventFromDataLayer(dataLayerEvent.event, dataLayerEvent["gtm.uniqueEventId"]);
         }
     }
+  } else if (initializedBy !== hintSignature) {
+    // Another tag instance loaded the SDK first and replayed the dataLayer
+    // with ITS hints while this instance was still waiting for the script, so
+    // this instance's triggering event has not been observed with THIS
+    // instance's hints yet. Observe it now, exactly as the already-initialized
+    // branch at the bottom of this file does. Deliberately no replay and no
+    // setItem: the other instance owns the stored signature, and replaying the
+    // whole dataLayer here would report events this instance never triggered.
+    // An instance whose signature matches falls through and does nothing: the
+    // replay already covered it with identical hints.
+    inspectEventFromDataLayer(triggeringEventName, triggeringEventId);
   }
 
   data.gtmOnSuccess();
@@ -297,7 +404,16 @@ function handleEvent(dataLayerEvent) {
     eventProperties[key] = dataLayerEvent[key];
   });
   
-  callInWindow('inspector.trackSchemaFromEvent', dataLayerEvent.event, eventProperties);
+  var hints = {};
+  setHintField(hints, 'outputReference', data.outputReference);
+  setHintField(hints, 'originHint', data.originHint);
+  setHintField(hints, 'appVersion', data.appVersion);
+
+  if (Object.keys(hints).length > 0) {
+    callInWindow('inspector.trackSchemaFromEvent', dataLayerEvent.event, eventProperties, hints);
+  } else {
+    callInWindow('inspector.trackSchemaFromEvent', dataLayerEvent.event, eventProperties);
+  }
   return;
 }
 
@@ -305,9 +421,7 @@ const alreadyInit = templateStorage.getItem(INSTANCE_STORAGE_KEY);
 if (!alreadyInit) {
   injectScript("https://cdn.avo.app/inspector/inspector-gtm-v2.min.js", onsuccess, onfailure, 'inspector_cache');
 } else {
-  var eventName = copyFromDataLayer("event");
-  var eventId = copyFromDataLayer("gtm.uniqueEventId");
-  inspectEventFromDataLayer(eventName, eventId);
+  inspectEventFromDataLayer(triggeringEventName, triggeringEventId);
   data.gtmOnSuccess();
 }
 
@@ -698,6 +812,45 @@ ___WEB_PERMISSIONS___
                     "boolean": false
                   }
                 ]
+              },
+              {
+                "type": 3,
+                "mapKey": [
+                  {
+                    "type": 1,
+                    "string": "key"
+                  },
+                  {
+                    "type": 1,
+                    "string": "read"
+                  },
+                  {
+                    "type": 1,
+                    "string": "write"
+                  },
+                  {
+                    "type": 1,
+                    "string": "execute"
+                  }
+                ],
+                "mapValue": [
+                  {
+                    "type": 1,
+                    "string": "inspector.__CLIENT__"
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": true
+                  },
+                  {
+                    "type": 8,
+                    "boolean": false
+                  }
+                ]
               }
             ]
           }
@@ -790,7 +943,808 @@ ___WEB_PERMISSIONS___
 
 ___TESTS___
 
-scenarios: []
+scenarios:
+- name: Backward compatibility - neither hint param set leaves the call unchanged
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('injectScript').wasNotCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.path).isEqualTo('inspector.trackSchemaFromEvent');
+    assertThat(call.length).isEqualTo(3);
+    assertThat(call.args.length).isEqualTo(2);
+    assertApi('callInWindow').wasCalledWith('inspector.trackSchemaFromEvent', 'test_event', { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' });
+
+- name: outputReference set, originHint unset omits originHint key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(Object.keys(call.args[2]).indexOf('originHint')).isEqualTo(-1);
+
+- name: outputReference empty string omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = '';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference whitespace-only omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = '   ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference null omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = null;
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference as an empty object omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = {};
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: outputReference as an empty array omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = [];
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(3);
+
+- name: originHint as a plain string is trimmed and sent
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = '  android  ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('android');
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
+
+- name: originHint as a number is stringified
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 123;
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('123');
+
+- name: originHint as a boolean is stringified
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = true;
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('true');
+
+- name: Both outputReference and originHint set are both present
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'android';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(call.args[2].originHint).isEqualTo('android');
+
+- name: Only originHint set leaves outputReference absent
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 'android';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('android');
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
+
+- name: Neither outputReference nor originHint ever appears as a propertyName in eventProperties
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'android';
+    mockData.appVersion = '5.1.0';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    const eventProperties = call.args[1];
+    assertThat(Object.keys(eventProperties).indexOf('outputReference')).isEqualTo(-1);
+    assertThat(Object.keys(eventProperties).indexOf('originHint')).isEqualTo(-1);
+    assertThat(Object.keys(eventProperties).indexOf('appVersion')).isEqualTo(-1);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(call.args[2].originHint).isEqualTo('android');
+    assertThat(call.args[2].appVersion).isEqualTo('5.1.0');
+
+- name: Event data property literally named outputReference coexists with the tag-config outputReference
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, outputReference: 42 }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-config-value';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    const eventProperties = call.args[1];
+    assertThat(eventProperties.outputReference).isEqualTo(42);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-config-value');
+
+- name: Two tag instances differing only in originHint produce identical eventProperties
+  code: |-
+    const JSON = require('JSON');
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockDataA = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataA.originHint = 'ios';
+    runCode(mockDataA);
+
+    const mockDataB = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataB.originHint = 'android';
+    runCode(mockDataB);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(2);
+    const callA = capturedCalls[0];
+    const callB = capturedCalls[1];
+    assertThat(JSON.stringify(callA.args[1])).isEqualTo(JSON.stringify(callB.args[1]));
+    assertThat(callA.args[2].originHint).isEqualTo('ios');
+    assertThat(callB.args[2].originHint).isEqualTo('android');
+
+- name: Two tag instances differing only in outputReference produce identical eventProperties
+  code: |-
+    const JSON = require('JSON');
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockDataA = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataA.outputReference = 'meta-aaa';
+    runCode(mockDataA);
+
+    const mockDataB = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockDataB.outputReference = 'meta-bbb';
+    runCode(mockDataB);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(2);
+    const callA = capturedCalls[0];
+    const callB = capturedCalls[1];
+    assertThat(JSON.stringify(callA.args[1])).isEqualTo(JSON.stringify(callB.args[1]));
+    assertThat(callA.args[2].outputReference).isEqualTo('meta-aaa');
+    assertThat(Object.keys(callA.args[2]).indexOf('originHint')).isEqualTo(-1);
+    assertThat(callB.args[2].outputReference).isEqualTo('meta-bbb');
+    assertThat(Object.keys(callB.args[2]).indexOf('originHint')).isEqualTo(-1);
+
+- name: originHint and appVersion set are both present
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 'ios';
+    mockData.appVersion = '5.1.0';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('ios');
+    assertThat(call.args[2].appVersion).isEqualTo('5.1.0');
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
+
+- name: appVersion set without originHint is sent alone
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.appVersion = '  2.0.0  ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].appVersion).isEqualTo('2.0.0');
+    assertThat(Object.keys(call.args[2]).indexOf('originHint')).isEqualTo(-1);
+    assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
+
+- name: appVersion whitespace-only omits the key
+  code: |-
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.originHint = 'ios';
+    mockData.appVersion = '   ';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].originHint).isEqualTo('ios');
+    assertThat(Object.keys(call.args[2]).indexOf('appVersion')).isEqualTo(-1);
+
+- name: First load - the initializing instance replays the dataLayer with its own hints
+  code: |-
+    var storedSignature = null;
+    mockObject('templateStorage', {
+      getItem: function(key) { return storedSignature; },
+      setItem: function(key, value) { storedSignature = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'web';
+    mockData.appVersion = '1.2.3';
+
+    runCode(mockData);
+
+    assertApi('injectScript').wasCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(storedSignature).isEqualTo('["meta-x7k2q","web","1.2.3"]');
+    assertThat(capturedCalls.length).isEqualTo(2);
+    assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[0].length).isEqualTo(4);
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[0].args[2].originHint).isEqualTo('web');
+    assertThat(capturedCalls[0].args[2].appVersion).isEqualTo('1.2.3');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('other_event');
+    assertThat(capturedCalls[1].length).isEqualTo(4);
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[1].args[2].originHint).isEqualTo('web');
+    assertThat(capturedCalls[1].args[2].appVersion).isEqualTo('1.2.3');
+
+- name: First load - the initializing instance declares itself as the gtm-web client
+  code: |-
+    var storedSignature = null;
+    var clientWritten = false;
+    var clientWrittenBeforeLoad = false;
+    mockObject('templateStorage', {
+      getItem: function(key) { return storedSignature; },
+      setItem: function(key, value) { storedSignature = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+      if (key === 'inspector') {
+        return { load: function() { clientWrittenBeforeLoad = clientWritten; } };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) {
+      if (key === 'inspector.__CLIENT__' && value === 'gtm-web' && overrideExisting === true) {
+        clientWritten = true;
+      }
+      return true;
+    });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    // The SDK reads inspector.__CLIENT__ at init and sends it as the
+    // X-Avo-Client request header, defaulting to 'web' when it is unset. This
+    // write is the only thing marking the traffic as web-GTM traffic, and it
+    // is not tied to the hint parameters, so it happens even with none set.
+    assertApi('setInWindow').wasCalledWith('inspector.__CLIENT__', 'gtm-web', true);
+    // Written before inspector.load(): the SDK reads the window keys when it
+    // initializes, so a write afterwards would arrive too late and the header
+    // would fall back to the 'web' default.
+    assertThat(clientWrittenBeforeLoad).isEqualTo(true);
+
+- name: Later instance with a different hint signature observes its own triggering event
+  code: |-
+    var getItemCalls = 0;
+    mockObject('templateStorage', {
+      getItem: function(key) {
+        getItemCalls = getItemCalls + 1;
+        // Read 1 is the top-level check, before any instance has initialized,
+        // so this instance injects the script too. By the time the script
+        // calls back, another tag instance has stored ITS hint signature.
+        return getItemCalls === 1 ? null : '["other-output","other-origin","9.9.9"]';
+      },
+      setItem: function(key, value) { fail('a later instance must not overwrite the stored signature'); }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = 'meta-x7k2q';
+    mockData.originHint = 'web';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    // The SDK is already loaded and configured, so this instance must not
+    // re-initialize it.
+    assertApi('setInWindow').wasNotCalled();
+    // Exactly this instance's own triggering event, with its own hints, and no
+    // second replay of the dataLayer: other_event stays untouched.
+    assertThat(capturedCalls.length).isEqualTo(1);
+    const call = capturedCalls[0];
+    assertThat(call.args[0]).isEqualTo('test_event');
+    assertThat(call.length).isEqualTo(4);
+    assertThat(call.args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(call.args[2].originHint).isEqualTo('web');
+
+- name: Later instance with the same hint signature does not observe anything again
+  code: |-
+    var getItemCalls = 0;
+    mockObject('templateStorage', {
+      getItem: function(key) {
+        getItemCalls = getItemCalls + 1;
+        // The instance that initialized stored a signature that normalizes to
+        // the same value as this instance's parameters.
+        return getItemCalls === 1 ? null : '["meta-x7k2q","web",""]';
+      },
+      setItem: function(key, value) { fail('a later instance must not overwrite the stored signature'); }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) { onSuccess(); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    mockData.outputReference = '  meta-x7k2q  ';
+    mockData.originHint = 'web';
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('setInWindow').wasNotCalled();
+    // The dataLayer replay already covered every event with identical hints,
+    // so observing anything here would double-report.
+    assertThat(capturedCalls.length).isEqualTo(0);
+
+- name: Two instances both inject before either callback runs, matching GTM's queue
+  code: |-
+    // The three scenarios above drive one runCode at a time and vary
+    // templateStorage to stand in for the other instance. This one runs the
+    // real ordering instead: GTM loads injectScript asynchronously and queues
+    // every callback registered against the same cacheToken, so on a cold page
+    // both instances execute their top-level code, both see empty storage, and
+    // both inject before either onSuccess fires.
+    var store = {};
+    mockObject('templateStorage', {
+      getItem: function(key) { return store[key]; },
+      setItem: function(key, value) { store[key] = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [
+          { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' },
+          { event: 'other_event', 'gtm.uniqueEventId': 2, baz: 'qux' }
+        ];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+
+    // Queue the callbacks instead of running them, the way GTM does.
+    var pendingCallbacks = [];
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) {
+      pendingCallbacks.push(onSuccess);
+    });
+
+    const gatewayInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    gatewayInstance.outputReference = 'meta-x7k2q';
+    gatewayInstance.originHint = 'web';
+
+    const outputInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    outputInstance.outputReference = 'ga4-9f3';
+    outputInstance.originHint = 'web';
+
+    runCode(gatewayInstance);
+    runCode(outputInstance);
+
+    // Both instances injected, neither callback has fired, nothing observed.
+    assertThat(pendingCallbacks.length).isEqualTo(2);
+    assertThat(capturedCalls.length).isEqualTo(0);
+
+    // The script loads once and GTM drains the queue in registration order.
+    pendingCallbacks[0]();
+    pendingCallbacks[1]();
+
+    // First callback initializes and replays the whole dataLayer with ITS
+    // hints. Second callback finds a signature that is not its own, so it
+    // observes only its own triggering event and does not replay again.
+    assertThat(store['Avo Inspector Init']).isEqualTo('["meta-x7k2q","web",""]');
+    assertThat(capturedCalls.length).isEqualTo(3);
+
+    assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('other_event');
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta-x7k2q');
+
+    // The output-level instance reports its own event under its own reference.
+    // This is the assertion the feature exists for: one gateway key, two tag
+    // instances on the same event, two distinct checkpoints.
+    assertThat(capturedCalls[2].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[2].args[2].outputReference).isEqualTo('ga4-9f3');
+    assertThat(capturedCalls[2].args[2].originHint).isEqualTo('web');
+
+- name: A separator character inside a hint value does not collide two instances
+  code: |-
+    // Regression test for the signature encoding. These two configurations are
+    // genuinely different but flatten to the same string under a join on '|':
+    // 'meta|x' + 'web' + '' and 'meta' + 'x|web' + '' both give 'meta|x|web|'.
+    // With that encoding the second instance would read a stored signature
+    // equal to its own, conclude the replay had already covered it, and drop
+    // its triggering event. JSON quotes each element, so the two stay distinct.
+    var store = {};
+    mockObject('templateStorage', {
+      getItem: function(key) { return store[key]; },
+      setItem: function(key, value) { store[key] = value; }
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+      if (key === 'inspector') {
+        return { load: function() {} };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+
+    var pendingCallbacks = [];
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) {
+      pendingCallbacks.push(onSuccess);
+    });
+
+    const firstInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    firstInstance.outputReference = 'meta|x';
+    firstInstance.originHint = 'web';
+
+    const secondInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    secondInstance.outputReference = 'meta';
+    secondInstance.originHint = 'x|web';
+
+    runCode(firstInstance);
+    runCode(secondInstance);
+    pendingCallbacks[0]();
+    pendingCallbacks[1]();
+
+    assertThat(store['Avo Inspector Init']).isEqualTo('["meta|x","web",""]');
+
+    // One replayed event from the initializer, plus the second instance's own
+    // triggering event. Under a '|' join this would be 1: the second instance
+    // would see its own signature and stay silent.
+    assertThat(capturedCalls.length).isEqualTo(2);
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta|x');
+    assertThat(capturedCalls[0].args[2].originHint).isEqualTo('web');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta');
+    assertThat(capturedCalls[1].args[2].originHint).isEqualTo('x|web');
+
+- name: A later dataLayer push does not steal the second instance's triggering event
+  code: |-
+    // Regression test for WHEN the triggering event is read. copyFromDataLayer
+    // returns the data layer model's current values, which advance with every
+    // push. Reading them inside the injectScript success callback would name
+    // whatever event was current when the script finished downloading, not the
+    // event that fired this instance. This scenario pushes a later event during
+    // that window and asserts the second instance still reports its own.
+    var store = {};
+    mockObject('templateStorage', {
+      getItem: function(key) { return store[key]; },
+      setItem: function(key, value) { store[key] = value; }
+    });
+
+    // The data layer model advances as the page pushes.
+    var currentEventName = 'test_event';
+    var currentEventId = 1;
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return currentEventName;
+      if (key === 'gtm.uniqueEventId') return currentEventId;
+    });
+
+    var dataLayer = [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') { return dataLayer; }
+      if (key === 'inspector') { return { load: function() {} }; }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+
+    var pendingCallbacks = [];
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) {
+      pendingCallbacks.push(onSuccess);
+    });
+
+    const gatewayInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    gatewayInstance.outputReference = 'meta-x7k2q';
+
+    const outputInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    outputInstance.outputReference = 'ga4-9f3';
+
+    // Both instances fire on test_event, before the script has loaded.
+    runCode(gatewayInstance);
+    runCode(outputInstance);
+
+    // The page pushes a later event while the script is still downloading, so
+    // the data layer model now reports later_event as current.
+    dataLayer.push({ event: 'later_event', 'gtm.uniqueEventId': 2, baz: 'qux' });
+    currentEventName = 'later_event';
+    currentEventId = 2;
+
+    pendingCallbacks[0]();
+    pendingCallbacks[1]();
+
+    // The initializer replays whatever is in the dataLayer by then, which is
+    // both events, under its own reference.
+    assertThat(capturedCalls.length).isEqualTo(3);
+    assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('later_event');
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta-x7k2q');
+
+    // The assertion this scenario exists for. The second instance was
+    // triggered by test_event, so that is what it must report, even though
+    // later_event is current by the time its callback runs. Reading inside the
+    // callback yields 'later_event' here.
+    assertThat(capturedCalls[2].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[2].args[2].outputReference).isEqualTo('ga4-9f3');
+
+setup: |-
+  // Runs before every scenario. Holds only what no scenario varies: the
+  // container is not in preview mode, the tag is triggered by test_event with
+  // gtm.uniqueEventId 1, and every inspector.trackSchemaFromEvent call is
+  // captured in capturedCalls together with its argument count, so a scenario
+  // can tell the two-argument (no hints) call from the three-argument one.
+  // templateStorage and copyFromWindow stay in the scenarios: those are the
+  // mocks the scenarios differ on.
+
+  // Object is a Core API, not a global: only assertApi, assertThat, fail,
+  // mock, mockObject and runCode are usable without a require(). The eight
+  // scenarios that assert a hint key is ABSENT do it with
+  // Object.keys(x).indexOf('key') === -1, so they need the API in scope, and
+  // Setup is the one place every scenario shares (that is how capturedCalls
+  // below reaches them). No scenario declares Object itself.
+  const Object = require('Object');
+
+  mock('getContainerVersion', function() { return { previewMode: false }; });
+  mock('copyFromDataLayer', function(key) {
+    if (key === 'event') return 'test_event';
+    if (key === 'gtm.uniqueEventId') return 1;
+  });
+
+  var capturedCalls = [];
+  mock('callInWindow', function(path, eventName, eventProperties, hints) {
+    if (path !== 'inspector.trackSchemaFromEvent') { return; }
+    var hasHints = hints !== undefined;
+    capturedCalls.push({
+      path: path,
+      args: hasHints ? [eventName, eventProperties, hints] : [eventName, eventProperties],
+      length: hasHints ? 4 : 3
+    });
+  });
 
 
 ___NOTES___
