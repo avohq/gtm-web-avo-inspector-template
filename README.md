@@ -68,7 +68,7 @@ How it combines with **Origin hint** and the Inspector JS SDK's own configured v
 
 The practical consequence: **set App version whenever Origin hint is set.** An **Origin hint** with an empty **App version** is exactly the `appVersion: null` case above, so those events are silently discarded until the backend is updated.
 
-Nothing surfaces this at runtime. Avo Inspector JS SDK 3.3.0 sends `appVersion: null` without logging a warning, and the request returns HTTP 200 either way, so a misconfigured tag instance looks identical to a working one from the page. To check an instance, open the browser network tab with the container in GTM Preview mode and confirm the `POST https://api.avo.app/inspector/v1/track` body carries a non-null `appVersion`.
+Avo Inspector JS SDK 3.3.0 logs a console warning the first time it sends a `null` app version, once per page load, when the environment is `dev` — which is what this tag uses in GTM Preview mode. Because it fires once per page, a second misconfigured tag instance produces no additional line, and in production the SDK's logging is off, so nothing surfaces there at all. To check a specific instance, open the browser network tab with the container in GTM Preview mode and confirm the `POST https://api.avo.app/inspector/v1/track` body carries a non-null `appVersion`.
 
 ## How to publish an update
 
