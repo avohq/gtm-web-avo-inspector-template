@@ -240,6 +240,15 @@ const hintSignature = JSON.stringify([
   toHintString(data.appVersion)
 ]);
 
+// The event that triggered THIS tag instance, read at tag-evaluation time.
+// copyFromDataLayer returns the data layer model's CURRENT values, and those
+// advance with every push. Reading them inside the injectScript success
+// callback would name whatever event happened to be current when the CDN
+// script finished downloading, which on a real page is usually a later event
+// than the one that fired this instance. Both consumers close over these.
+const triggeringEventName = copyFromDataLayer("event");
+const triggeringEventId = copyFromDataLayer("gtm.uniqueEventId");
+
 const onfailure = () => {
   log(LOG_PREFIX + 'Error: failed to load Avo Inspector');
   return data.gtmOnFailure();
@@ -281,9 +290,7 @@ const onsuccess = () => {
     // whole dataLayer here would report events this instance never triggered.
     // An instance whose signature matches falls through and does nothing: the
     // replay already covered it with identical hints.
-    var ownEventName = copyFromDataLayer("event");
-    var ownEventId = copyFromDataLayer("gtm.uniqueEventId");
-    inspectEventFromDataLayer(ownEventName, ownEventId);
+    inspectEventFromDataLayer(triggeringEventName, triggeringEventId);
   }
 
   data.gtmOnSuccess();
@@ -406,9 +413,7 @@ const alreadyInit = templateStorage.getItem(INSTANCE_STORAGE_KEY);
 if (!alreadyInit) {
   injectScript("https://cdn.avo.app/inspector/inspector-gtm-v2.min.js", onsuccess, onfailure, 'inspector_cache');
 } else {
-  var eventName = copyFromDataLayer("event");
-  var eventId = copyFromDataLayer("gtm.uniqueEventId");
-  inspectEventFromDataLayer(eventName, eventId);
+  inspectEventFromDataLayer(triggeringEventName, triggeringEventId);
   data.gtmOnSuccess();
 }
 
@@ -1551,6 +1556,74 @@ scenarios:
     assertThat(capturedCalls[1].args[0]).isEqualTo('test_event');
     assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta');
     assertThat(capturedCalls[1].args[2].originHint).isEqualTo('x|web');
+
+- name: A later dataLayer push does not steal the second instance's triggering event
+  code: |-
+    // Regression test for WHEN the triggering event is read. copyFromDataLayer
+    // returns the data layer model's current values, which advance with every
+    // push. Reading them inside the injectScript success callback would name
+    // whatever event was current when the script finished downloading, not the
+    // event that fired this instance. This scenario pushes a later event during
+    // that window and asserts the second instance still reports its own.
+    var store = {};
+    mockObject('templateStorage', {
+      getItem: function(key) { return store[key]; },
+      setItem: function(key, value) { store[key] = value; }
+    });
+
+    // The data layer model advances as the page pushes.
+    var currentEventName = 'test_event';
+    var currentEventId = 1;
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return currentEventName;
+      if (key === 'gtm.uniqueEventId') return currentEventId;
+    });
+
+    var dataLayer = [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') { return dataLayer; }
+      if (key === 'inspector') { return { load: function() {} }; }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+
+    var pendingCallbacks = [];
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) {
+      pendingCallbacks.push(onSuccess);
+    });
+
+    const gatewayInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    gatewayInstance.outputReference = 'meta-x7k2q';
+
+    const outputInstance = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+    outputInstance.outputReference = 'ga4-9f3';
+
+    // Both instances fire on test_event, before the script has loaded.
+    runCode(gatewayInstance);
+    runCode(outputInstance);
+
+    // The page pushes a later event while the script is still downloading, so
+    // the data layer model now reports later_event as current.
+    dataLayer.push({ event: 'later_event', 'gtm.uniqueEventId': 2, baz: 'qux' });
+    currentEventName = 'later_event';
+    currentEventId = 2;
+
+    pendingCallbacks[0]();
+    pendingCallbacks[1]();
+
+    // The initializer replays whatever is in the dataLayer by then, which is
+    // both events, under its own reference.
+    assertThat(capturedCalls.length).isEqualTo(3);
+    assertThat(capturedCalls[0].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[0].args[2].outputReference).isEqualTo('meta-x7k2q');
+    assertThat(capturedCalls[1].args[0]).isEqualTo('later_event');
+    assertThat(capturedCalls[1].args[2].outputReference).isEqualTo('meta-x7k2q');
+
+    // The assertion this scenario exists for. The second instance was
+    // triggered by test_event, so that is what it must report, even though
+    // later_event is current by the time its callback runs. Reading inside the
+    // callback yields 'later_event' here.
+    assertThat(capturedCalls[2].args[0]).isEqualTo('test_event');
+    assertThat(capturedCalls[2].args[2].outputReference).isEqualTo('ga4-9f3');
 
 setup: |-
   // Runs before every scenario. Holds only what no scenario varies: the

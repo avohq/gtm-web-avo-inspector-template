@@ -23,7 +23,9 @@ All three parameters are optional: **Output reference** alone determines the che
 
 Hints are passed to the Avo Inspector JS SDK as top-level fields on each observation — never inside the event schema.
 
-On first load, the tag instance that ends up loading the SDK replays the events already in the `dataLayer` using **its own** **Output reference** / **Origin hint** / **App version**, matching how filters are replayed today. Every other tag instance that fired before the SDK finished loading observes **its own triggering event** with **its own** parameters instead of replaying the `dataLayer` again — so a second instance (for example an output-level tag firing on the same events) is neither skipped nor double-reported.
+On first load, the tag instance that ends up loading the SDK replays the events already in the `dataLayer` using **its own** **Output reference** / **Origin hint** / **App version**, matching how filters are replayed today. An instance that fired before the SDK finished loading and is configured with the *same* three parameters is already covered by that replay, so it stays silent rather than reporting the same observation twice. Every instance with a *different* configuration observes **its own triggering event** with **its own** parameters instead of replaying the `dataLayer` again — so an output-level tag firing on the same events as a gateway-level tag is neither skipped nor double-reported.
+
+> "Same configuration" here means the same **Output reference**, **Origin hint** and **App version**. The event and property filters are deliberately not part of that comparison, so two instances that differ *only* in their include/exclude lists count as identical and the replay applies the initializing instance's filters to both. On first load only, an event that one instance's filters would have kept can therefore be dropped by the other's. Give such instances distinct hint parameters if that matters to you.
 
 **Output reference**, **Origin hint** and **App version** require Avo Inspector JS SDK 3.3.0 or later. The tag passes all three in the third argument of `inspector.trackSchemaFromEvent`, a parameter that 3.3.0 adds; earlier builds take two arguments and ignore a third silently.
 
@@ -61,7 +63,7 @@ How it combines with **Origin hint** and the Inspector JS SDK's own configured v
 
 ## Backend support for these parameters
 
-**These three parameters are not honored by the Avo Inspector backend yet.** The tag sends the correct payload today and will start working unchanged once the backend catches up — no tag reconfiguration will be needed then — but until that ships:
+**Output reference and Origin hint are not honored by the Avo Inspector backend yet, and a `null` App version is dropped.** A non-null **App version** works end to end today: the fourth row of the table above, an empty **Origin hint** with **App version** set, already overrides the configured version in Avo. The tag sends the correct payload for all three, and the other cases start working unchanged once the backend catches up, with no tag reconfiguration needed. Until that ships:
 
 - The Inspector JS SDK posts to `/inspector/v1/track`, whose parser discards `outputReference` and `originHint`. Observations are recorded at the gateway (container) level regardless of what you configure here.
 - That same parser **drops any event whose `appVersion` is `null`**. The request still returns HTTP 200, so nothing surfaces as an error — the event simply never appears in Avo.
