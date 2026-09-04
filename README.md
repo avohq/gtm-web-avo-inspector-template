@@ -29,7 +29,7 @@ On first load, the tag instance that ends up loading the SDK replays the events 
 
 The tag injects `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`, which is only a queueing stub — it forwards every argument it is given, so the third one survives the queue regardless of build. The build that consumes the queue is `https://cdn.avo.app/inspector/inspector-v2.min.js`, and that is the one which must be 3.3.0 or later. To check which is deployed:
 
-```
+```sh
 curl -s https://cdn.avo.app/inspector/inspector-v2.min.js | grep -c outputReference
 ```
 
