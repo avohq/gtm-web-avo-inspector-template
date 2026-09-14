@@ -136,11 +136,18 @@ const Object = require('Object');
 const getContainerVersion = require('getContainerVersion');
 const templateStorage = require('templateStorage');
 const callLater = require('callLater');
+const getTimestampMillis = require('getTimestampMillis');
 
 const LOG_PREFIX = '[Avo Inspector] ';
 const INSTANCE_STORAGE_KEY = 'Avo Inspector Init';
-// callLater is clamped to a few ms per call, so this bounds the wait to roughly 400ms.
-const MAX_LOOKUP_ATTEMPTS = 100;
+// Bounds for the later-fire lookup retry (see lookupAndHandleEvent). A lookup copies
+// the whole dataLayer into the sandbox, so lookups run on every 4th timer tick rather
+// than on every tick: 25 lookups over ~100 ticks is roughly 400ms in a visible tab.
+// The wall-clock bound stops a chain in a hidden tab, where one tick can take a
+// second or more.
+const MAX_LOOKUP_ATTEMPTS = 25;
+const TICKS_BETWEEN_LOOKUPS = 4;
+const MAX_LOOKUP_WAIT_MS = 2000;
 
 const isPreview = getContainerVersion().previewMode;
 
@@ -201,14 +208,25 @@ const onsuccess = () => {
   return;
 };
 
-const inspectEventFromDataLayer = (eventName, eventId, retryIfMissing) => {
+// onDone runs once the event has been sent or dropped. The later-fire path passes
+// gtmOnSuccess so the tag reports its outcome only after the lookup has finished,
+// which keeps the preview logs and the tag status together in Tag Assistant even
+// when the lookup had to wait for a deferred push.
+const inspectEventFromDataLayer = (eventName, eventId, retryIfMissing, onDone) => {
   if (isPreview) {
     log(LOG_PREFIX, 'Inspecting', eventName, eventId);
   }
   if (checkInput(eventName, eventId)) {
-    lookupAndHandleEvent(eventName, eventId, retryIfMissing ? MAX_LOOKUP_ATTEMPTS : 1);
-  } else if (isPreview) {
-    log(LOG_PREFIX + 'Event ' + eventName + ' filtered out and not sent to Avo Inspector because of event name');
+    var attempts = retryIfMissing ? MAX_LOOKUP_ATTEMPTS : 1;
+    var deadline = retryIfMissing ? getTimestampMillis() + MAX_LOOKUP_WAIT_MS : 0;
+    lookupAndHandleEvent(eventName, eventId, attempts, deadline, onDone);
+  } else {
+    if (isPreview) {
+      log(LOG_PREFIX + 'Event ' + eventName + ' filtered out and not sent to Avo Inspector because of event name');
+    }
+    if (onDone) {
+      onDone();
+    }
   }
 };
 
@@ -216,18 +234,33 @@ const inspectEventFromDataLayer = (eventName, eventId, retryIfMissing) => {
 // dataLayer.push to defer the real push (e.g. to yield to the main thread), a container
 // bound on top of that wrapper processes the event and fires tags first, and the object
 // only lands in the array a few frames later. Retry the lookup until it shows up.
-const lookupAndHandleEvent = (eventName, eventId, attemptsLeft) => {
+const lookupAndHandleEvent = (eventName, eventId, attemptsLeft, deadline, onDone) => {
   var dataLayerEvent = getDataLayerEventWithUniqueId(eventId);
 
   if (checkDataLayerEventMatchCallingEvent(dataLayerEvent, eventName)) {
     handleEvent(dataLayerEvent);
-  } else if (dataLayerEvent === null && attemptsLeft > 1) {
-    callLater(() => {
-      lookupAndHandleEvent(eventName, eventId, attemptsLeft - 1);
+  } else if (dataLayerEvent === null && attemptsLeft > 1 && getTimestampMillis() < deadline) {
+    afterTicks(TICKS_BETWEEN_LOOKUPS, () => {
+      lookupAndHandleEvent(eventName, eventId, attemptsLeft - 1, deadline, onDone);
     });
+    return;
   } else if (isPreview) {
     log(LOG_PREFIX + 'Event ' + eventName + ' filtered out and not sent to Avo Inspector because of the data layer content');
   }
+  if (onDone) {
+    onDone();
+  }
+};
+
+// Runs fn after the given number of callLater ticks.
+const afterTicks = (ticks, fn) => {
+  callLater(() => {
+    if (ticks > 1) {
+      afterTicks(ticks - 1, fn);
+    } else {
+      fn();
+    }
+  });
 };
 
 const checkInput = (eventName, uniqueEventId) => {  
@@ -256,9 +289,13 @@ const checkInput = (eventName, uniqueEventId) => {
 function getDataLayerEventWithUniqueId(uniqueEventId) {
   var dataLayer = copyFromWindow("dataLayer");
   var matchingEvent = null;
+  if (getType(dataLayer) !== 'array') {
+    return matchingEvent;
+  }
   for (var i = dataLayer.length - 1; i >= 0; i--) {
     var event = dataLayer[i];
-    if (event["gtm.uniqueEventId"] === uniqueEventId) {
+    // Entries the sandbox could not copy (non-plain objects) come back as undefined.
+    if (getType(event) === 'object' && event["gtm.uniqueEventId"] === uniqueEventId) {
       matchingEvent = event;
       break;
     }
@@ -322,8 +359,9 @@ if (!alreadyInit) {
 } else {
   var eventName = copyFromDataLayer("event");
   var eventId = copyFromDataLayer("gtm.uniqueEventId");
-  inspectEventFromDataLayer(eventName, eventId, true);
-  data.gtmOnSuccess();
+  inspectEventFromDataLayer(eventName, eventId, true, () => {
+    data.gtmOnSuccess();
+  });
 }
 
 
@@ -863,6 +901,7 @@ scenarios:
         trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
       }
     });
+    mock('getTimestampMillis', function() { return 0; });
     var pending = [];
     var callLaterCalls = 0;
     mock('callLater', function(fn) { callLaterCalls++; pending.push(fn); });
@@ -871,7 +910,7 @@ scenarios:
 
     runCode(mockData);
 
-    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('gtmOnSuccess').wasNotCalled();
     assertThat(trackedCalls.length).isEqualTo(0);
 
     for (var i = 0; i < 1000 && pending.length > 0; i++) {
@@ -879,7 +918,8 @@ scenarios:
       next();
     }
 
-    assertThat(callLaterCalls).isEqualTo(3);
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(callLaterCalls).isEqualTo(12);
     assertThat(trackedCalls.length).isEqualTo(1);
     assertThat(trackedCalls[0].eventName).isEqualTo('test_event');
     assertThat(trackedCalls[0].eventProperties.foo).isEqualTo('bar');
@@ -903,6 +943,7 @@ scenarios:
         trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
       }
     });
+    mock('getTimestampMillis', function() { return 0; });
     var pending = [];
     var callLaterCalls = 0;
     mock('callLater', function(fn) { callLaterCalls++; pending.push(fn); });
@@ -911,6 +952,8 @@ scenarios:
 
     runCode(mockData);
 
+    assertApi('gtmOnSuccess').wasNotCalled();
+
     for (var i = 0; i < 1000 && pending.length > 0; i++) {
       var next = pending.shift();
       next();
@@ -918,7 +961,7 @@ scenarios:
 
     assertApi('gtmOnSuccess').wasCalled();
     assertThat(pending.length).isEqualTo(0);
-    assertThat(callLaterCalls).isEqualTo(99);
+    assertThat(callLaterCalls).isEqualTo(96);
     assertThat(trackedCalls.length).isEqualTo(0);
 
 - name: Later fire does not retry when the entry with its id belongs to another event
@@ -949,6 +992,112 @@ scenarios:
 
     assertApi('gtmOnSuccess').wasCalled();
     assertThat(callLaterCalls).isEqualTo(0);
+    assertThat(trackedCalls.length).isEqualTo(0);
+
+- name: Later fire skips entries the sandbox could not copy
+  code: |-
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }, undefined, null];
+      }
+    });
+    var trackedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties) {
+      if (path === 'inspector.trackSchemaFromEvent') {
+        trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
+      }
+    });
+    var callLaterCalls = 0;
+    mock('callLater', function(fn) { callLaterCalls++; });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(callLaterCalls).isEqualTo(0);
+    assertThat(trackedCalls.length).isEqualTo(1);
+    assertThat(trackedCalls[0].eventProperties.foo).isEqualTo('bar');
+
+- name: Later fire filtered by event name reports success right away
+  code: |-
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    var dataLayerReads = 0;
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        dataLayerReads++;
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+    var trackedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties) {
+      if (path === 'inspector.trackSchemaFromEvent') {
+        trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
+      }
+    });
+    var callLaterCalls = 0;
+    mock('callLater', function(fn) { callLaterCalls++; });
+
+    const mockData = { eventsToExclude: '["test_event"]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(dataLayerReads).isEqualTo(0);
+    assertThat(callLaterCalls).isEqualTo(0);
+    assertThat(trackedCalls.length).isEqualTo(0);
+
+- name: Later fire stops retrying once the wall-clock bound is exceeded
+  code: |-
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'earlier_event', 'gtm.uniqueEventId': 0 }];
+      }
+    });
+    var trackedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties) {
+      if (path === 'inspector.trackSchemaFromEvent') {
+        trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
+      }
+    });
+    // Each read of the clock moves it 1500ms: the deadline is set at 0, the first
+    // miss sees 1500 and retries, the second sees 3000 and stops.
+    var now = 0;
+    mock('getTimestampMillis', function() { var current = now; now = now + 1500; return current; });
+    var pending = [];
+    var callLaterCalls = 0;
+    mock('callLater', function(fn) { callLaterCalls++; pending.push(fn); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasNotCalled();
+
+    for (var i = 0; i < 1000 && pending.length > 0; i++) {
+      var next = pending.shift();
+      next();
+    }
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(callLaterCalls).isEqualTo(4);
     assertThat(trackedCalls.length).isEqualTo(0);
 
 
