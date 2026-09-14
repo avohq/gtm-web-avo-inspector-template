@@ -135,9 +135,12 @@ const getType = require('getType');
 const Object = require('Object');
 const getContainerVersion = require('getContainerVersion');
 const templateStorage = require('templateStorage');
+const callLater = require('callLater');
 
 const LOG_PREFIX = '[Avo Inspector] ';
 const INSTANCE_STORAGE_KEY = 'Avo Inspector Init';
+// callLater is clamped to a few ms per call, so this bounds the wait to roughly 400ms.
+const MAX_LOOKUP_ATTEMPTS = 100;
 
 const isPreview = getContainerVersion().previewMode;
 
@@ -189,7 +192,7 @@ const onsuccess = () => {
     for (var i = 0; i < dataLayerArray.length; i++) {
         var dataLayerEvent = dataLayerArray[i];
         if (dataLayerEvent.event) {
-            inspectEventFromDataLayer(dataLayerEvent.event, dataLayerEvent["gtm.uniqueEventId"]);
+            inspectEventFromDataLayer(dataLayerEvent.event, dataLayerEvent["gtm.uniqueEventId"], false);
         }
     }
   }
@@ -198,20 +201,32 @@ const onsuccess = () => {
   return;
 };
 
-const inspectEventFromDataLayer = (eventName, eventId) => {
+const inspectEventFromDataLayer = (eventName, eventId, retryIfMissing) => {
   if (isPreview) {
     log(LOG_PREFIX, 'Inspecting', eventName, eventId);
   }
   if (checkInput(eventName, eventId)) {
-    var dataLayerEvent = getDataLayerEventWithUniqueId(eventId);
-
-    if (checkDataLayerEventMatchCallingEvent(dataLayerEvent, eventName)) {
-      handleEvent(dataLayerEvent);
-    } else if (isPreview) {
-      log(LOG_PREFIX + 'Event ' + eventName + ' filtered out and not sent to Avo Inspector because of the data layer content');
-    }
+    lookupAndHandleEvent(eventName, eventId, retryIfMissing ? MAX_LOOKUP_ATTEMPTS : 1);
   } else if (isPreview) {
     log(LOG_PREFIX + 'Event ' + eventName + ' filtered out and not sent to Avo Inspector because of event name');
+  }
+};
+
+// This tag can run before the triggering push is in window.dataLayer. When a page wraps
+// dataLayer.push to defer the real push (e.g. to yield to the main thread), a container
+// bound on top of that wrapper processes the event and fires tags first, and the object
+// only lands in the array a few frames later. Retry the lookup until it shows up.
+const lookupAndHandleEvent = (eventName, eventId, attemptsLeft) => {
+  var dataLayerEvent = getDataLayerEventWithUniqueId(eventId);
+
+  if (checkDataLayerEventMatchCallingEvent(dataLayerEvent, eventName)) {
+    handleEvent(dataLayerEvent);
+  } else if (dataLayerEvent === null && attemptsLeft > 1) {
+    callLater(() => {
+      lookupAndHandleEvent(eventName, eventId, attemptsLeft - 1);
+    });
+  } else if (isPreview) {
+    log(LOG_PREFIX + 'Event ' + eventName + ' filtered out and not sent to Avo Inspector because of the data layer content');
   }
 };
 
@@ -307,7 +322,7 @@ if (!alreadyInit) {
 } else {
   var eventName = copyFromDataLayer("event");
   var eventId = copyFromDataLayer("gtm.uniqueEventId");
-  inspectEventFromDataLayer(eventName, eventId);
+  inspectEventFromDataLayer(eventName, eventId, true);
   data.gtmOnSuccess();
 }
 
@@ -790,7 +805,151 @@ ___WEB_PERMISSIONS___
 
 ___TESTS___
 
-scenarios: []
+scenarios:
+- name: Later fire sends the event when its push is already in window.dataLayer
+  code: |-
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+    var trackedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties) {
+      if (path === 'inspector.trackSchemaFromEvent') {
+        trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
+      }
+    });
+    var callLaterCalls = 0;
+    mock('callLater', function(fn) { callLaterCalls++; });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('injectScript').wasNotCalled();
+    assertThat(callLaterCalls).isEqualTo(0);
+    assertThat(trackedCalls.length).isEqualTo(1);
+    assertThat(trackedCalls[0].eventName).isEqualTo('test_event');
+    assertThat(trackedCalls[0].eventProperties.foo).isEqualTo('bar');
+
+- name: Later fire retries until a deferred push lands in window.dataLayer
+  code: |-
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    var dataLayerReads = 0;
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        dataLayerReads++;
+        if (dataLayerReads <= 3) {
+          return [{ event: 'earlier_event', 'gtm.uniqueEventId': 0 }];
+        }
+        return [{ event: 'earlier_event', 'gtm.uniqueEventId': 0 }, { event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+    });
+    var trackedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties) {
+      if (path === 'inspector.trackSchemaFromEvent') {
+        trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
+      }
+    });
+    var pending = [];
+    var callLaterCalls = 0;
+    mock('callLater', function(fn) { callLaterCalls++; pending.push(fn); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(trackedCalls.length).isEqualTo(0);
+
+    for (var i = 0; i < 1000 && pending.length > 0; i++) {
+      var next = pending.shift();
+      next();
+    }
+
+    assertThat(callLaterCalls).isEqualTo(3);
+    assertThat(trackedCalls.length).isEqualTo(1);
+    assertThat(trackedCalls[0].eventName).isEqualTo('test_event');
+    assertThat(trackedCalls[0].eventProperties.foo).isEqualTo('bar');
+
+- name: Later fire gives up after the retry limit when the push never lands
+  code: |-
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'earlier_event', 'gtm.uniqueEventId': 0 }];
+      }
+    });
+    var trackedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties) {
+      if (path === 'inspector.trackSchemaFromEvent') {
+        trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
+      }
+    });
+    var pending = [];
+    var callLaterCalls = 0;
+    mock('callLater', function(fn) { callLaterCalls++; pending.push(fn); });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    for (var i = 0; i < 1000 && pending.length > 0; i++) {
+      var next = pending.shift();
+      next();
+    }
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(pending.length).isEqualTo(0);
+    assertThat(callLaterCalls).isEqualTo(99);
+    assertThat(trackedCalls.length).isEqualTo(0);
+
+- name: Later fire does not retry when the entry with its id belongs to another event
+  code: |-
+    mock('getContainerVersion', function() { return { previewMode: false }; });
+    mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
+    mock('copyFromDataLayer', function(key) {
+      if (key === 'event') return 'test_event';
+      if (key === 'gtm.uniqueEventId') return 1;
+    });
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'other_event', 'gtm.uniqueEventId': 1 }];
+      }
+    });
+    var trackedCalls = [];
+    mock('callInWindow', function(path, eventName, eventProperties) {
+      if (path === 'inspector.trackSchemaFromEvent') {
+        trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
+      }
+    });
+    var callLaterCalls = 0;
+    mock('callLater', function(fn) { callLaterCalls++; });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    assertApi('gtmOnSuccess').wasCalled();
+    assertThat(callLaterCalls).isEqualTo(0);
+    assertThat(trackedCalls.length).isEqualTo(0);
 
 
 ___NOTES___
