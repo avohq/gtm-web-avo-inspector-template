@@ -143,11 +143,14 @@ const INSTANCE_STORAGE_KEY = 'Avo Inspector Init';
 // Bounds for the later-fire lookup retry (see lookupAndHandleEvent). A lookup copies
 // the whole dataLayer into the sandbox, so lookups run on every 4th timer tick rather
 // than on every tick: 25 lookups over ~100 ticks is roughly 400ms in a visible tab.
-// The wall-clock bound stops a chain in a hidden tab, where one tick can take a
-// second or more.
+// In a hidden tab the browser stretches a tick to a second or more, so the same 100
+// ticks span minutes; that is deliberate, so an event that fired shortly before the
+// tab was hidden is still sent once the tab is visible and its push lands. The
+// wall-clock ceiling only stops chains in tabs hidden long enough for the browser to
+// slow ticks to one per minute.
 const MAX_LOOKUP_ATTEMPTS = 25;
 const TICKS_BETWEEN_LOOKUPS = 4;
-const MAX_LOOKUP_WAIT_MS = 2000;
+const MAX_LOOKUP_WAIT_MS = 5 * 60 * 1000;
 
 const isPreview = getContainerVersion().previewMode;
 
@@ -1077,10 +1080,11 @@ scenarios:
         trackedCalls.push({ eventName: eventName, eventProperties: eventProperties });
       }
     });
-    // Each read of the clock moves it 1500ms: the deadline is set at 0, the first
-    // miss sees 1500 and retries, the second sees 3000 and stops.
+    // Each read of the clock moves it 200s: the deadline is set at 0 + 5min, the
+    // first miss sees 200s and retries, the second sees 400s and stops, well
+    // before the 25-lookup cap would.
     var now = 0;
-    mock('getTimestampMillis', function() { var current = now; now = now + 1500; return current; });
+    mock('getTimestampMillis', function() { var current = now; now = now + 200000; return current; });
     var pending = [];
     var callLaterCalls = 0;
     mock('callLater', function(fn) { callLaterCalls++; pending.push(fn); });
