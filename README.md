@@ -27,7 +27,7 @@ On first load, the tag instance that ends up loading the SDK replays the events 
 
 > "Same configuration" here means the same **Output reference**, **Origin hint** and **Origin app version**. The event and property filters are deliberately not part of that comparison, so two instances that differ *only* in their include/exclude lists count as identical and the replay applies the initializing instance's filters to both. On first load only, an event that one instance's filters would have kept can therefore be dropped by the other's. Give such instances distinct hint parameters if that matters to you.
 
-**Output reference**, **Origin hint** and **Origin app version** require Avo Inspector JS SDK 3.2.1 or later. The tag passes all three in the third argument of `inspector.trackSchemaFromEvent`, which 3.2.1 accepts only from this template (see [How these reach Avo](#how-these-reach-avo)); earlier builds take two arguments and ignore a third silently. They also require the SDK build that posts to `/inspector/v2/track` (see [How these reach Avo](#how-these-reach-avo)) — an older build reaches an endpoint that discards the two gateway fields.
+**Output reference**, **Origin hint** and **Origin app version** require Avo Inspector JS SDK 3.2.1 or later. The tag passes all three in the third argument of `inspector.trackSchemaFromEvent`, which 3.2.1 accepts only from this template; earlier builds take two arguments and ignore a third silently. They also require the SDK build that posts to `/inspector/v2/track` (see [How these reach Avo](#how-these-reach-avo)) — an older build reaches an endpoint that discards the two gateway fields.
 
 The tag injects `https://cdn.avo.app/inspector/inspector-gtm-v3.min.js`, which is only a queueing stub — it forwards every argument it is given, so the third one survives the queue regardless of build. The stub loads `https://cdn.avo.app/inspector/inspector-v3.min.js`, the build that consumes the queue, and that is the one which must be current. To check what is deployed:
 
@@ -39,7 +39,7 @@ curl -s https://cdn.avo.app/inspector/inspector-v3.min.js | grep -c 'inspector/v
 
 Any command printing `0` means the stub or the build is missing or too old: the tag's parameters will not reach Avo no matter how they are configured. **Publish this template to the gallery only after all three checks pass**, otherwise the three parameters appear in the tag UI while doing nothing.
 
-Both v3 files are new CDN objects that only this template version loads. Containers still on the previous template version, and pages that embed the SDK with a script tag, keep loading `inspector-gtm-v2.min.js` / `inspector-v2.min.js` and stay on that build until they update the template (or their script tag). Do not overwrite the v2 objects with the 3.3.0 build: that would move those users too.
+Both v3 files are new CDN objects that only this template version loads. Containers still on the previous template version, and pages that embed the SDK with a script tag, keep loading `inspector-gtm-v2.min.js` / `inspector-v2.min.js` and stay on that build until they update the template (or their script tag). Do not overwrite the v2 objects with the 3.2.1 build: that would move those users too.
 
 ## Origin hint
 
@@ -79,14 +79,12 @@ What `/inspector/v2/track` does with the three parameters:
 
 To check what a specific tag instance sends, open the browser network tab with the container in GTM Preview mode and inspect the `POST https://api.avo.app/inspector/v2/track` request: the `X-Avo-Client` header should read `gtm-web`, and the body should carry the `outputReference` / `originHint` / `appVersion` you configured as top-level fields next to `eventProperties`.
 
-### Browser senders are blocked until Avo's CORS allowlist is updated
+### CORS allowlist
 
-`/inspector/v2/track` requires the `api-key`, `env` and `X-Avo-Client` request headers. Custom headers make a CORS preflight unavoidable, and the Inspector write API's preflight currently answers with `Access-Control-Allow-Headers: content-type, content-encoding` — none of the three. A browser therefore refuses to send the request and nothing reaches Avo.
-
-**Until that allowlist is updated on Avo's side, this tag cannot work end to end in production.** The fix is a separate, already-planned change to the Inspector write API; there is deliberately no fallback to the old endpoint and no feature flag in this template, because Avo is standardizing on one endpoint. This is the second precondition for publishing, next to the CDN check above.
+`/inspector/v2/track` requires the `api-key`, `env` and `X-Avo-Client` request headers. Custom headers make a CORS preflight unavoidable, so the Inspector write API's preflight must allow all three. It does since avohq/monorepo#10016: `OPTIONS https://api.avo.app/inspector/v2/track` answers `Access-Control-Allow-Headers: content-type, content-encoding, api-key, env, x-avo-client`. Re-check that header before publishing; if any of the three is missing, a browser refuses to send the request and nothing reaches Avo.
 
 ## How to publish an update
 
-Before publishing this version: upload `inspector-v3.min.js` and `inspector-gtm-v3.min.js` to `https://cdn.avo.app/inspector/`, confirm the [CDN checks](#gateways) pass, and confirm the [CORS allowlist](#browser-senders-are-blocked-until-avos-cors-allowlist-is-updated) is live. Then follow:
+Before publishing this version: upload `inspector-v3.min.js` and `inspector-gtm-v3.min.js` to `https://cdn.avo.app/inspector/`, confirm the [CDN checks](#gateways) pass, and confirm the [CORS allowlist](#cors-allowlist) still allows the three headers. Then follow:
 
 https://developers.google.com/tag-platform/tag-manager/templates/gallery#update_your_template

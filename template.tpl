@@ -201,7 +201,8 @@ const startsWithOneOfPrefixes = (str, prefixes) => {
   return false;
 };
 
-// --- Gateway coordinate fields (outputReference, originHint, originAppVersion) ---
+// --- Gateway coordinate fields (outputReference, originHint, appVersion) ---
+// The appVersion value comes from the originAppVersion tag parameter.
 // Normalizes a tag-parameter value into a string safe to forward to the Avo
 // Inspector JS SDK, or '' when there is nothing sendable. Caller omits the key
 // entirely when the result is ''.
@@ -242,8 +243,8 @@ function setHintField(hints, key, rawValue) {
 // free-form GTM parameters, so any separator character can also occur inside a
 // value and let two different configurations produce one signature. With a
 // join on '|', outputReference 'a' + originHint 'b|c' and outputReference 'a'
-// + originHint 'b' + originAppVersion 'c' both flatten to 'a|b|c|'. A collision is
-// silent data loss: the second instance would read a stored signature equal to
+// + originHint 'b' + originAppVersion 'c' both flatten to 'a|b|c|'. A
+// collision is silent data loss: the second instance would read a stored signature equal to
 // its own, conclude the replay already covered it, and drop its triggering
 // event. JSON quotes and escapes each element, so the encoding stays
 // one-to-one whatever the values contain.
