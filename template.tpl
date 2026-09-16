@@ -481,7 +481,7 @@ function handleEvent(dataLayerEvent) {
 
 const alreadyInit = templateStorage.getItem(INSTANCE_STORAGE_KEY);
 if (!alreadyInit) {
-  injectScript("https://cdn.avo.app/inspector/inspector-gtm-v2.min.js", onsuccess, onfailure, 'inspector_cache');
+  injectScript("https://cdn.avo.app/inspector/inspector-gtm-v3.min.js", onsuccess, onfailure, 'inspector_cache');
 } else {
   inspectEventFromDataLayer(triggeringEventName, triggeringEventId, true, () => {
     data.gtmOnSuccess();
@@ -969,7 +969,7 @@ ___WEB_PERMISSIONS___
             "listItem": [
               {
                 "type": 1,
-                "string": "https://cdn.avo.app/inspector/inspector-gtm-v2.min.js"
+                "string": "https://cdn.avo.app/inspector/inspector-gtm-v3.min.js"
               }
             ]
           }
@@ -1500,6 +1500,48 @@ scenarios:
     // initializes, so a write afterwards would arrive too late and the header
     // would fall back to the 'web' default.
     assertThat(clientWrittenBeforeLoad).isEqualTo(true);
+
+- name: First load - injects the v3 loader stub, not the v2 one
+  code: |-
+    // The v3 stub loads the v3 SDK build, which accepts the hints argument.
+    // The v2 stub loads the v2 build, which stays on an older SDK for earlier
+    // versions of this template and for script-tag installs. That build
+    // ignores the hints argument, so pointing back at it drops the hints.
+    var storedSignature = null;
+    mockObject('templateStorage', {
+      getItem: function(key) { return storedSignature; },
+      setItem: function(key, value) { storedSignature = value; }
+    });
+    var loadCalls = 0;
+    mock('copyFromWindow', function(key) {
+      if (key === 'dataLayer') {
+        return [{ event: 'test_event', 'gtm.uniqueEventId': 1, foo: 'bar' }];
+      }
+      if (key === 'inspector') {
+        return { load: function() { loadCalls = loadCalls + 1; } };
+      }
+    });
+    mock('setInWindow', function(key, value, overrideExisting) { return true; });
+    var injectedUrls = [];
+    mock('injectScript', function(url, onSuccess, onFailure, cacheToken) {
+      injectedUrls.push(url);
+      onSuccess();
+    });
+
+    const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
+
+    runCode(mockData);
+
+    // Positive control: the mock captured exactly one injection, and its
+    // success callback drove the stub's load() and the dataLayer replay. The
+    // URL assertion below therefore checks a call that really happened.
+    assertApi('injectScript').wasCalled();
+    assertThat(injectedUrls.length).isEqualTo(1);
+    assertThat(loadCalls).isEqualTo(1);
+    assertThat(capturedCalls.length).isEqualTo(1);
+    assertApi('gtmOnSuccess').wasCalled();
+
+    assertThat(injectedUrls[0]).isEqualTo('https://cdn.avo.app/inspector/inspector-gtm-v3.min.js');
 
 - name: Later instance with a different hint signature observes its own triggering event
   code: |-

@@ -29,14 +29,17 @@ On first load, the tag instance that ends up loading the SDK replays the events 
 
 **Output reference**, **Origin hint** and **App version** require Avo Inspector JS SDK 3.3.0 or later. The tag passes all three in the third argument of `inspector.trackSchemaFromEvent`, a parameter that 3.3.0 adds; earlier builds take two arguments and ignore a third silently. They also require the SDK build that posts to `/inspector/v2/track` (see [How these reach Avo](#how-these-reach-avo)) — an older build reaches an endpoint that discards the two gateway fields.
 
-The tag injects `https://cdn.avo.app/inspector/inspector-gtm-v2.min.js`, which is only a queueing stub — it forwards every argument it is given, so the third one survives the queue regardless of build. The build that consumes the queue is `https://cdn.avo.app/inspector/inspector-v2.min.js`, and that is the one which must be current. To check what is deployed:
+The tag injects `https://cdn.avo.app/inspector/inspector-gtm-v3.min.js`, which is only a queueing stub — it forwards every argument it is given, so the third one survives the queue regardless of build. The stub loads `https://cdn.avo.app/inspector/inspector-v3.min.js`, the build that consumes the queue, and that is the one which must be current. To check what is deployed:
 
 ```sh
-curl -s https://cdn.avo.app/inspector/inspector-v2.min.js | grep -c outputReference
-curl -s https://cdn.avo.app/inspector/inspector-v2.min.js | grep -c 'inspector/v2/track'
+curl -s https://cdn.avo.app/inspector/inspector-gtm-v3.min.js | grep -c 'inspector/inspector-v3.min.js'
+curl -s https://cdn.avo.app/inspector/inspector-v3.min.js | grep -c outputReference
+curl -s https://cdn.avo.app/inspector/inspector-v3.min.js | grep -c 'inspector/v2/track'
 ```
 
-Either command printing `0` means the deployed build is too old: the tag's parameters will not reach Avo no matter how they are configured. **Publish this template to the gallery only after a build satisfying both checks is live**, otherwise the three parameters appear in the tag UI while doing nothing.
+Any command printing `0` means the stub or the build is missing or too old: the tag's parameters will not reach Avo no matter how they are configured. **Publish this template to the gallery only after all three checks pass**, otherwise the three parameters appear in the tag UI while doing nothing.
+
+Both v3 files are new CDN objects that only this template version loads. Containers still on the previous template version, and pages that embed the SDK with a script tag, keep loading `inspector-gtm-v2.min.js` / `inspector-v2.min.js` and stay on that build until they update the template (or their script tag). Do not overwrite the v2 objects with the 3.3.0 build: that would move those users too.
 
 ## Origin hint
 
@@ -80,8 +83,10 @@ To check what a specific tag instance sends, open the browser network tab with t
 
 `/inspector/v2/track` requires the `api-key`, `env` and `X-Avo-Client` request headers. Custom headers make a CORS preflight unavoidable, and the Inspector write API's preflight currently answers with `Access-Control-Allow-Headers: content-type, content-encoding` — none of the three. A browser therefore refuses to send the request and nothing reaches Avo.
 
-**Until that allowlist is updated on Avo's side, this tag cannot work end to end in production.** The fix is a separate, already-planned change to the Inspector write API; there is deliberately no fallback to the old endpoint and no feature flag in this template, because Avo is standardizing on one endpoint. This is the second precondition for publishing, next to the CDN build check above.
+**Until that allowlist is updated on Avo's side, this tag cannot work end to end in production.** The fix is a separate, already-planned change to the Inspector write API; there is deliberately no fallback to the old endpoint and no feature flag in this template, because Avo is standardizing on one endpoint. This is the second precondition for publishing, next to the CDN check above.
 
 ## How to publish an update
+
+Before publishing this version: upload `inspector-v3.min.js` and `inspector-gtm-v3.min.js` to `https://cdn.avo.app/inspector/`, confirm the [CDN checks](#gateways) pass, and confirm the [CORS allowlist](#browser-senders-are-blocked-until-avos-cors-allowlist-is-updated) is live. Then follow:
 
 https://developers.google.com/tag-platform/tag-manager/templates/gallery#update_your_template
