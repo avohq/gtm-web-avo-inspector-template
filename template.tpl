@@ -1251,7 +1251,7 @@ scenarios:
     assertThat(call.args[2].originHint).isEqualTo('android');
     assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
 
-- name: Neither outputReference nor originHint ever appears as a propertyName in eventProperties
+- name: Neither outputReference, originHint nor appVersion ever appears as a propertyName in eventProperties
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
     mock('copyFromWindow', function(key) {
