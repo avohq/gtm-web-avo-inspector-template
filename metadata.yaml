@@ -18,16 +18,16 @@ versions:
   # Latest version
   - sha: "<PLACEHOLDER: fill in with the commit sha at publish time>"
     changeNotes: |
-      Add optional Output reference, Origin hint and App version parameters.
-      Output reference lets a tag instance observe a specific output's checkpoint instead of the gateway (container) level; Origin hint attaches a low-cardinality source label to each observation; App version sets the version reported for the event.
+      Add optional Output reference, Origin hint and Origin app version parameters.
+      Output reference lets a tag instance observe a specific output's checkpoint instead of the gateway (container) level; Origin hint attaches a low-cardinality source label to each observation; Origin app version sets the version reported for the event.
       All three are sent to the Avo Inspector JS SDK as top-level fields alongside the event schema, for customers adopting one gateway-scoped Inspector API key per web GTM container.
-      Origin hint makes an event source-scoped, so the SDK's configured version no longer applies to it: with Origin hint set and App version empty the event is sent with a literal null app version.
+      Origin hint makes an event source-scoped, so the SDK's configured version no longer applies to it: with Origin hint set and Origin app version empty the event is sent with a literal null app version.
       Declare this container as the gtm-web Inspector client: the tag now writes inspector.__CLIENT__ on the window, so the Avo Inspector JS SDK sends X-Avo-Client: gtm-web with every observation and web GTM traffic stays tellable apart from a page that embeds the SDK directly.
-      The SDK posts to the unified https://api.avo.app/inspector/v2/track endpoint, which decodes Output reference and Origin hint and accepts a null app version (recorded as unversioned), so every combination of Origin hint and App version works end to end.
+      The SDK posts to the unified https://api.avo.app/inspector/v2/track endpoint, which decodes Output reference and Origin hint and accepts a null app version (recorded as unversioned), so every combination of Origin hint and Origin app version works end to end.
       This adds one key, inspector.__CLIENT__, to the template's access globals permission.
       The tag now injects https://cdn.avo.app/inspector/inspector-gtm-v3.min.js, which loads the SDK from inspector-v3.min.js, and the inject_script permission changes to match. Earlier template versions and script-tag installs keep loading inspector-v2.min.js.
-      Requires both v3 CDN objects to be live, with an Avo Inspector JS SDK build that posts to /inspector/v2/track, and browsers cannot send the endpoint's required headers until Avo's Inspector write API CORS allowlist is updated. Publish this version only once both are live.
-      On first load, the tag instance that loads the SDK replays the existing dataLayer with its own parameters. An instance waiting on the same script with the same Output reference, Origin hint and App version is already covered by that replay and stays silent; every instance configured differently observes its own triggering event with its own parameters instead of being skipped. The event and property filters are not part of that comparison.
+      Requires both v3 CDN objects to be live, with Avo Inspector JS SDK 3.2.1 or later, which posts to /inspector/v2/track when inspector.__CLIENT__ is gtm-web (Avo's Inspector write API CORS allowlist already accepts the endpoint's headers). Publish this version only once both objects are live.
+      On first load, the tag instance that loads the SDK replays the existing dataLayer with its own parameters. An instance waiting on the same script with the same Output reference, Origin hint and Origin app version is already covered by that replay and stays silent; every instance configured differently observes its own triggering event with its own parameters instead of being skipped. The event and property filters are not part of that comparison.
       Backward compatible: an existing tag instance leaves the three parameters unset and its event body is unchanged; the only difference is the new X-Avo-Client request header the SDK sends.
   # Older versions
   - sha: 7851164bb18332418ab8d82c13bb7390775ac677

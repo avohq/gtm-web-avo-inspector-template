@@ -20,7 +20,7 @@ ___INFO___
     "displayName": "Avo",
     "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAwCAYAAABXAvmHAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAM9SURBVHgB7ZkxTBNRGMf/FQgJpmcCJiS2MSZG0jKa2E7oACYmRkPLKFAWQoyAI0IcHBB0UyhxlLYSJygxYRKNJi7t4OBATZw0bbrQ5doFF33flR5X4Oi7906vJPdLmutd7i7f/3vfe+/7vvNc7gn8wSnmDE45rgCncQU4jSvAaVwBTtMKm1G8Xvj8PgSDQf1aoVBAIV9Anh2P48peJ3r2uvTzYmsFXzuK4ME2AUPRCKKRQYRDIdN7SEA2m8XS8kqdmBuVSxgvXdXPyfj7HVvgQVpAOBzC88UF+H2+hvfSPf4ICY1gNZHEy+U4yuUyZJAS8HhuFmOx0bpr5Nnt7Q/YyX3Xr/lZSIVD1+pGh54bGOjH8EgMKEEYYQFrqUSdQZn90KCjGTQC5P2x2AgURdHO322m8en2C+ALhBBahcjzNeNVVcXMozncY548yXiCRmcpHsfdwShyuZx2TVG8uMlGQhTLAmjoa2FDxg+PxrCeTlt5hSbkDhNh9bnjsCSAhtwY8zOzc3WxbpWnC4v6SIhiScD01AN9tdlIb+I9m6wyqGoZ8wvPIIMlASHDpF1iS6Ad0LxZ39iEKNwCaL03et9sVxVB5l3cAoKBgP5fNnTshFtAryG3yRfyaBa4Bfh8F/T/+bx94SMLtwBjznKO7aLNArcAWvKaEW4BO4YNh1akZoFbQM6w4w70i+cudsMtgDYcyn0ISuS8rPKyC55awgxLO/FqMqUdKYN8ODUJOyDjh6KDEMWagERCHwVK6k4qH3mg+vkNqytksCSAVqLl+Ip+/molzor3AEQg49dSSanwISzXA69ZLVvL4ymU1pLJI2VlI8hoMl5UvJGWzq7zT2ARqnmpdULpRXt7O6739WltlN3SrtZCMYO8PjExXm0C+Kuep5D8OP8WF3+16fcV2yrYUn6AB4/MF5rpyUmtRjBSa51QoaPu7969LBEkbx+eM3QvFfW3vnUfbav4/0Nbhepb8viUodA5aJ2YP0deX02kqouCJrIbokj3hWg+0G+IjI42bmxtsOLlwHB5PP/iIx+JoAnu9VaTvnJZRSaTNTX6cGux0vIbn8/+BA8e9yulw7gCnMYV4DSuAKdxBTjNXy3yL/9pRPhYAAAAAElFTkSuQmCC"
   },
-  "description": "Sends your events metadata to Avo Inspector to monitor and improve data quality. Optional Output reference, Origin hint and App version. Docs: https://www.avo.app/docs/inspector/start-using-inspector",
+  "description": "Sends your events metadata to Avo Inspector to monitor data quality. Optional Output reference, Origin hint and Origin app version. Docs: https://www.avo.app/docs/inspector/start-using-inspector",
   "containerContexts": [
     "WEB"
   ]
@@ -123,11 +123,11 @@ ___TEMPLATE_PARAMETERS___
   },
   {
     "type": "TEXT",
-    "name": "appVersion",
-    "displayName": "App version (optional)",
+    "name": "originAppVersion",
+    "displayName": "Origin app version (optional)",
     "simpleValueType": true,
     "canBeEmptyString": true,
-    "help": "Version of the source app that produced the event, e.g. {{DLV - app_version}}. With Origin hint set, this is the version reported for the event (a literal null when left empty, which Avo records as an unversioned event); without Origin hint it overrides the default version only when provided."
+    "help": "Version of the app the event came from, e.g. {{DLV - app_version}}. Named to pair with Origin hint: Origin hint says which source, Origin app version says that source's version. It sets the event's appVersion; the field keeps its own name. With Origin hint set, this is the version reported for the event (a literal null when left empty, which Avo records as an unversioned event); without Origin hint it overrides the default version only when provided."
   },
   {
     "type": "TEXT",
@@ -201,7 +201,7 @@ const startsWithOneOfPrefixes = (str, prefixes) => {
   return false;
 };
 
-// --- Gateway coordinate fields (outputReference, originHint, appVersion) ---
+// --- Gateway coordinate fields (outputReference, originHint, originAppVersion) ---
 // Normalizes a tag-parameter value into a string safe to forward to the Avo
 // Inspector JS SDK, or '' when there is nothing sendable. Caller omits the key
 // entirely when the result is ''.
@@ -242,7 +242,7 @@ function setHintField(hints, key, rawValue) {
 // free-form GTM parameters, so any separator character can also occur inside a
 // value and let two different configurations produce one signature. With a
 // join on '|', outputReference 'a' + originHint 'b|c' and outputReference 'a'
-// + originHint 'b' + appVersion 'c' both flatten to 'a|b|c|'. A collision is
+// + originHint 'b' + originAppVersion 'c' both flatten to 'a|b|c|'. A collision is
 // silent data loss: the second instance would read a stored signature equal to
 // its own, conclude the replay already covered it, and drop its triggering
 // event. JSON quotes and escapes each element, so the encoding stays
@@ -250,7 +250,7 @@ function setHintField(hints, key, rawValue) {
 const hintSignature = JSON.stringify([
   toHintString(data.outputReference),
   toHintString(data.originHint),
-  toHintString(data.appVersion)
+  toHintString(data.originAppVersion)
 ]);
 
 // The event that triggered THIS tag instance, read at tag-evaluation time.
@@ -469,7 +469,8 @@ function handleEvent(dataLayerEvent) {
   var hints = {};
   setHintField(hints, 'outputReference', data.outputReference);
   setHintField(hints, 'originHint', data.originHint);
-  setHintField(hints, 'appVersion', data.appVersion);
+  // The SDK option keeps the wire field's name, appVersion (as the sGTM template does).
+  setHintField(hints, 'appVersion', data.originAppVersion);
 
   if (Object.keys(hints).length > 0) {
     callInWindow('inspector.trackSchemaFromEvent', dataLayerEvent.event, eventProperties, hints);
@@ -1261,7 +1262,7 @@ scenarios:
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
     mockData.outputReference = 'meta-x7k2q';
     mockData.originHint = 'android';
-    mockData.appVersion = '5.1.0';
+    mockData.originAppVersion = '5.1.0';
 
     runCode(mockData);
 
@@ -1351,7 +1352,7 @@ scenarios:
     assertThat(callB.args[2].outputReference).isEqualTo('meta-bbb');
     assertThat(Object.keys(callB.args[2]).indexOf('originHint')).isEqualTo(-1);
 
-- name: originHint and appVersion set are both present
+- name: originHint and originAppVersion set are both present
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
     mock('copyFromWindow', function(key) {
@@ -1362,7 +1363,7 @@ scenarios:
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
     mockData.originHint = 'ios';
-    mockData.appVersion = '5.1.0';
+    mockData.originAppVersion = '5.1.0';
 
     runCode(mockData);
 
@@ -1374,7 +1375,7 @@ scenarios:
     assertThat(call.args[2].appVersion).isEqualTo('5.1.0');
     assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
 
-- name: appVersion set without originHint is sent alone
+- name: originAppVersion set without originHint is sent alone as appVersion
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
     mock('copyFromWindow', function(key) {
@@ -1384,7 +1385,7 @@ scenarios:
     });
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
-    mockData.appVersion = '  2.0.0  ';
+    mockData.originAppVersion = '  2.0.0  ';
 
     runCode(mockData);
 
@@ -1393,10 +1394,11 @@ scenarios:
     const call = capturedCalls[0];
     assertThat(call.length).isEqualTo(4);
     assertThat(call.args[2].appVersion).isEqualTo('2.0.0');
+    assertThat(Object.keys(call.args[2]).indexOf('originAppVersion')).isEqualTo(-1);
     assertThat(Object.keys(call.args[2]).indexOf('originHint')).isEqualTo(-1);
     assertThat(Object.keys(call.args[2]).indexOf('outputReference')).isEqualTo(-1);
 
-- name: appVersion whitespace-only omits the key
+- name: originAppVersion whitespace-only omits the appVersion key
   code: |-
     mockObject('templateStorage', { getItem: function(key) { return true; }, setItem: function(key, value) {} });
     mock('copyFromWindow', function(key) {
@@ -1407,7 +1409,7 @@ scenarios:
 
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
     mockData.originHint = 'ios';
-    mockData.appVersion = '   ';
+    mockData.originAppVersion = '   ';
 
     runCode(mockData);
 
@@ -1442,7 +1444,7 @@ scenarios:
     const mockData = { eventsToExclude: '[]', eventsToInclude: '[]', propertiesToExclude: '[]', propertiesToInclude: '[]' };
     mockData.outputReference = 'meta-x7k2q';
     mockData.originHint = 'web';
-    mockData.appVersion = '1.2.3';
+    mockData.originAppVersion = '1.2.3';
 
     runCode(mockData);
 
