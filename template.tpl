@@ -277,10 +277,11 @@ const onsuccess = () => {
     setInWindow('inspector.__VERSION__', "1.0.0", true);
     setInWindow('inspector.__APP_NAME__', data.appName, true);
     // Identifies this sender to the Avo Inspector API. The SDK reads
-    // inspector.__CLIENT__ at init and sends it as the X-Avo-Client request
-    // header, defaulting to 'web' when it is unset. Setting it here is what
-    // keeps observations that originate in a web GTM container tellable apart
-    // from a page that embeds the SDK directly, without decoding a body.
+    // inspector.__CLIENT__ at init; the value 'gtm-web' is what selects the
+    // v2 endpoint and becomes the X-Avo-Client request header. Unset — or any
+    // other value — the SDK stays on v1 and sends no such header, so this write
+    // is what keeps observations that originate in a web GTM container tellable
+    // apart from a page that embeds the SDK directly, without decoding a body.
     // Written in this branch only: it belongs to the one instance that
     // configures and loads the SDK, exactly like the four writes above.
     setInWindow('inspector.__CLIENT__', 'gtm-web', true);
@@ -1494,14 +1495,15 @@ scenarios:
     runCode(mockData);
 
     assertApi('gtmOnSuccess').wasCalled();
-    // The SDK reads inspector.__CLIENT__ at init and sends it as the
-    // X-Avo-Client request header, defaulting to 'web' when it is unset. This
-    // write is the only thing marking the traffic as web-GTM traffic, and it
-    // is not tied to the hint parameters, so it happens even with none set.
+    // The SDK reads inspector.__CLIENT__ at init; 'gtm-web' selects the v2
+    // endpoint and becomes the X-Avo-Client request header, and no other value
+    // does. This write is the only thing marking the traffic as web-GTM
+    // traffic, and it is not tied to the hint parameters, so it happens even
+    // with none set.
     assertApi('setInWindow').wasCalledWith('inspector.__CLIENT__', 'gtm-web', true);
     // Written before inspector.load(): the SDK reads the window keys when it
-    // initializes, so a write afterwards would arrive too late and the header
-    // would fall back to the 'web' default.
+    // initializes, so a write afterwards would arrive too late — the SDK would
+    // stay on v1 and send no X-Avo-Client header at all.
     assertThat(clientWrittenBeforeLoad).isEqualTo(true);
 
 - name: First load - injects the v3 loader stub, not the v2 one
