@@ -16,7 +16,7 @@ homepage: "https://www.avo.app"
 documentation: "https://www.avo.app/docs/inspector/connect-inspector-to-gtm#inspector-client-side-gtm-integration-with-a-template"
 versions:
   # Latest version
-  - sha: "<PLACEHOLDER: fill in with the commit sha at publish time>"
+  - sha: eed397f56a6e8f387779bf6b67f7d89c14e0e9b1
     changeNotes: |
       Add optional Output reference, Origin hint and Origin app version parameters.
       Output reference lets a tag instance observe a specific output's checkpoint instead of the gateway (container) level; Origin hint attaches a low-cardinality source label to each observation; Origin app version sets the version reported for the event.
